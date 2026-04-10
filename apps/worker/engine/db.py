@@ -6,7 +6,13 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-engine = create_engine(os.environ['DATABASE_URL'], pool_pre_ping=True)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise RuntimeError(
+        'DATABASE_URL is not set. Ensure a .env or .env.dev file is present and contains DATABASE_URL='
+    )
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
 def get_setting(session, key: str, default=None) -> str:

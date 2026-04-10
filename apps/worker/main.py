@@ -12,9 +12,25 @@ import os
 import time
 import logging
 from dotenv import load_dotenv
-from engine.scheduler import run_scheduler
 
-load_dotenv()
+# Load environment variables from .env files.
+# Prefer a local `.env`, then `.env.dev`, then fall back to parent `.env` or `.env.example`.
+base_dir = os.path.dirname(__file__)
+candidates = [
+  os.path.join(base_dir, '.env'),
+  os.path.join(base_dir, '.env.dev'),
+  os.path.join(base_dir, '.env.local'),
+  os.path.join(base_dir, '..', '.env'),
+  os.path.join(base_dir, '..', '.env.example'),
+]
+loaded = False
+for p in candidates:
+  if os.path.exists(p):
+    load_dotenv(p)
+    loaded = True
+    break
+if not loaded:
+  load_dotenv()  # fallback to default search
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,5 +38,7 @@ logging.basicConfig(
 )
 
 if __name__ == '__main__':
-    logging.info('RMS Dispatch Engine starting...')
-    run_scheduler()
+  # Import scheduler after env vars are loaded so DB settings are available.
+  from engine.scheduler import run_scheduler
+  logging.info('RMS Dispatch Engine starting...')
+  run_scheduler()
