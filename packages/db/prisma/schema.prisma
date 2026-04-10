@@ -11,27 +11,86 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum SystemRole      { user system_admin }
-enum UserStatus      { active disabled deleted }
-enum EventStatus     { active cancelled archived }
-enum EventRole       { owner contributor reader }
-enum SubscriberStatus { active unsubscribed }
-enum ContactChannel  { email sms }
-enum ContactStatus   { active inactive }
-enum ReminderStatus  { scheduled processing recurring sent cancelled failed }
-enum RecurrenceType  {
-  never hourly daily weekdays weekends weekly
-  fortnightly monthly every_3_months every_6_months yearly
+enum SystemRole {
+  USER @map("user")
+  SYSTEM_ADMIN @map("system_admin")
 }
-enum DispatchStatus  { pending sent failed skipped }
-enum ApiKeyStatus    { active revoked }
+
+enum UserStatus {
+  ACTIVE @map("active")
+  DISABLED @map("disabled")
+  DELETED @map("deleted")
+}
+
+enum EventStatus {
+  ACTIVE @map("active")
+  CANCELLED @map("cancelled")
+  ARCHIVED @map("archived")
+}
+
+enum EventRole {
+  OWNER @map("owner")
+  CONTRIBUTOR @map("contributor")
+  READER @map("reader")
+}
+
+enum SubscriberStatus {
+  ACTIVE @map("active")
+  UNSUBSCRIBED @map("unsubscribed")
+}
+
+enum ContactChannel {
+  EMAIL @map("email")
+  SMS @map("sms")
+}
+
+enum ContactStatus {
+  ACTIVE @map("active")
+  INACTIVE @map("inactive")
+}
+
+enum ReminderStatus {
+  SCHEDULED @map("scheduled")
+  PROCESSING @map("processing")
+  RECURRING @map("recurring")
+  SENT @map("sent")
+  CANCELLED @map("cancelled")
+  FAILED @map("failed")
+}
+
+enum RecurrenceType {
+  NEVER      @map("never")
+  HOURLY     @map("hourly")
+  DAILY      @map("daily")
+  WEEKDAYS   @map("weekdays")
+  WEEKENDS   @map("weekends")
+  WEEKLY     @map("weekly")
+  FORTNIGHTLY @map("fortnightly")
+  MONTHLY    @map("monthly")
+  EVERY_3_MONTHS @map("every_3_months")
+  EVERY_6_MONTHS @map("every_6_months")
+  YEARLY     @map("yearly")
+}
+
+enum DispatchStatus {
+  PENDING @map("pending")
+  SENT @map("sent")
+  FAILED @map("failed")
+  SKIPPED @map("skipped")
+}
+
+enum ApiKeyStatus {
+  ACTIVE @map("active")
+  REVOKED @map("revoked")
+}
+
 enum ApiKeyScope {
-  users_read        @map("users:read")
-  events_read       @map("events:read")
-  events_write      @map("events:write")
-  subscribers_read  @map("subscribers:read")
-  subscribers_write @map("subscribers:write")
-  reports_read      @map("reports:read")
+  USERS_READ        @map("users:read")
+  EVENTS_READ       @map("events:read")
+  EVENTS_WRITE      @map("events:write")
+  SUBSCRIBERS_READ  @map("subscribers:read")
+  SUBSCRIBERS_WRITE @map("subscribers:write")
+  REPORTS_READ      @map("reports:read")
 }
 
 model SystemSetting {
@@ -52,8 +111,8 @@ model User {
   phone            String?    @db.VarChar(30)
   passwordHash     String     @map("password_hash")
   timezone         String     @default("UTC") @db.VarChar(60)
-  systemRole       SystemRole @default(user) @map("system_role")
-  status           UserStatus @default(active)
+  systemRole       SystemRole @default(USER) @map("system_role")
+  status           UserStatus @default(ACTIVE)
   emailVerified    Boolean    @default(false) @map("email_verified")
   emailVerifiedAt  DateTime?  @map("email_verified_at")
   createdAt        DateTime   @default(now()) @map("created_at")
@@ -89,7 +148,7 @@ model ApiKey {
   keyHash    String       @unique @map("key_hash") @db.VarChar(128)
   keyPrefix  String       @map("key_prefix") @db.VarChar(8)
   name       String       @db.VarChar(100)
-  status     ApiKeyStatus @default(active)
+  status     ApiKeyStatus @default(ACTIVE)
   lastUsedAt DateTime?    @map("last_used_at")
   expiresAt  DateTime?    @map("expires_at")
   createdAt  DateTime     @default(now()) @map("created_at")
@@ -130,7 +189,7 @@ model Event {
   eventDatetime DateTime    @map("event_datetime")
   eventTimezone String      @default("UTC") @map("event_timezone") @db.VarChar(60)
   location      String?     @db.VarChar(500)
-  status        EventStatus @default(active)
+  status        EventStatus @default(ACTIVE)
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at")
   owner         User        @relation("EventOwner", fields: [ownerId], references: [id])
@@ -165,7 +224,7 @@ model Subscriber {
   firstname  String           @db.VarChar(100)
   lastname   String           @db.VarChar(100)
   timezone   String?          @db.VarChar(60)
-  status     SubscriberStatus @default(active)
+  status     SubscriberStatus @default(ACTIVE)
   createdAt  DateTime         @default(now()) @map("created_at")
   updatedAt  DateTime         @default(now()) @updatedAt @map("updated_at")
   event      Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
@@ -184,7 +243,7 @@ model SubscriberContact {
   contactValue String         @map("contact_value") @db.VarChar(320)
   isPrimary    Boolean        @default(false) @map("is_primary")
   label        String?        @db.VarChar(100)
-  status       ContactStatus  @default(active)
+  status       ContactStatus  @default(ACTIVE)
   createdAt    DateTime       @default(now()) @map("created_at")
   subscriber   Subscriber     @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
   dispatches   ReminderDispatch[]
@@ -200,11 +259,11 @@ model Reminder {
   subjectTemplate  String         @map("subject_template") @db.VarChar(500)
   bodyTemplate     String         @map("body_template")
   channels         ContactChannel[]
-  recurrence       RecurrenceType @default(never)
+  recurrence       RecurrenceType @default(NEVER)
   nextRemindAt     DateTime?      @map("next_remind_at")
   lastDispatchedAt DateTime?      @map("last_dispatched_at")
   occurrenceCount  Int            @default(0) @map("occurrence_count")
-  status           ReminderStatus @default(scheduled)
+  status           ReminderStatus @default(SCHEDULED)
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
   event            Event          @relation(fields: [eventId], references: [id])
@@ -225,7 +284,7 @@ model ReminderDispatch {
   occurrenceNumber    Int            @default(1) @map("occurrence_number")
   renderedSubject     String?        @map("rendered_subject") @db.VarChar(500)
   renderedBody        String         @map("rendered_body")
-  status              DispatchStatus @default(pending)
+  status              DispatchStatus @default(PENDING)
   attempts            Int            @default(0) @db.SmallInt
   lastAttemptedAt     DateTime?      @map("last_attempted_at")
   sentAt              DateTime?      @map("sent_at")
