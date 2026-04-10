@@ -1,0 +1,10 @@
+# Reminder Management System — Dispatch Engine Dependencies
+sqlalchemy==2.0.*
+psycopg2-binary==2.9.*
+apscheduler==4.*
+sendgrid==6.*
+twilio==8.*
+python-dotenv==1.*
+luxon-python==0.*
+pytz==2024.*
+jinja2==3.*

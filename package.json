@@ -1,0 +1,14 @@
+{
+  "name": "rms",
+  "private": true,
+  "workspaces": ["apps/api", "apps/web", "packages/db"],
+  "scripts": {
+    "dev:api":    "npm run dev   --workspace=apps/api",
+    "dev:web":    "npm run dev   --workspace=apps/web",
+    "build:web":  "npm run build --workspace=apps/web",
+    "db:migrate": "npm run migrate --workspace=packages/db",
+    "db:generate":"npm run generate --workspace=packages/db",
+    "test":       "npm run test --workspaces --if-present",
+    "lint":       "npm run lint --workspaces --if-present"
+  }
+}

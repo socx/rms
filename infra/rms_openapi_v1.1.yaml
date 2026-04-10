@@ -1,0 +1,2650 @@
+openapi: 3.1.0
+
+info:
+  title: Reminder Management System API
+  version: 1.1.0
+  description: |
+    REST API for the Reminder Management System (RMS).
+
+    ## Authentication
+    Two modes are supported:
+    - **JWT** (`Authorization: Bearer <token>`) — for web UI sessions. Obtained via `POST /auth/login`.
+    - **API Key** (`X-Api-Key: <key>`) — for machine-to-machine integrations.
+
+    ## Rate Limiting
+    All responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
+    Exceeded limits return `429 Too Many Requests`.
+
+    ## Conventions
+    - All timestamps are ISO 8601 with UTC offset.
+    - All IDs are UUIDs.
+    - Paginated list endpoints accept `?page=` and `?per_page=` query parameters.
+    - Soft-deleted or disabled resources return `404` to non-admin callers.
+
+servers:
+  - url: https://your-domain.com/api/v1
+    description: Production
+
+tags:
+  - name: auth
+    description: Authentication and registration
+  - name: users
+    description: User account management
+  - name: api-keys
+    description: API key management
+  - name: events
+    description: Event management
+  - name: reminders
+    description: Reminder configuration and dispatch
+  - name: subscribers
+    description: Subscriber and contact management
+  - name: admin
+    description: System administration (system_admin only)
+
+# ─────────────────────────────────────────────────────────────
+# SECURITY SCHEMES
+# ─────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+
+  # ─── REUSABLE SCHEMAS ───────────────────────────────────────
+  schemas:
+
+    # ── Envelope ──
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          description: Response payload. Shape varies per endpoint.
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+        error:
+          type: 'null'
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        data:
+          type: 'null'
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Template contains unknown variables.
+            details:
+              type: array
+              items:
+                type: object
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 150
+
+    # ── Enums ──
+    SystemRole:
+      type: string
+      enum: [user, system_admin]
+
+    UserStatus:
+      type: string
+      enum: [active, disabled, deleted]
+
+    EventStatus:
+      type: string
+      enum: [active, cancelled, archived]
+
+    EventRole:
+      type: string
+      enum: [owner, contributor, reader]
+
+    SubscriberStatus:
+      type: string
+      enum: [active, unsubscribed]
+
+    ContactChannel:
+      type: string
+      enum: [email, sms]
+
+    ContactStatus:
+      type: string
+      enum: [active, inactive]
+
+    ReminderStatus:
+      type: string
+      enum: [scheduled, processing, recurring, sent, cancelled, failed]
+
+    Recurrence:
+      type: string
+      enum:
+        - never
+        - hourly
+        - daily
+        - weekdays
+        - weekends
+        - weekly
+        - fortnightly
+        - monthly
+        - every_3_months
+        - every_6_months
+        - yearly
+      default: never
+
+    DispatchStatus:
+      type: string
+      enum: [pending, sent, failed, skipped]
+
+    ApiKeyStatus:
+      type: string
+      enum: [active, revoked]
+
+    ApiKeyScope:
+      type: string
+      enum:
+        - users:read
+        - events:read
+        - events:write
+        - subscribers:read
+        - subscribers:write
+        - reports:read
+
+    # ── Core Objects ──
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        firstname:
+          type: string
+          example: Jane
+        lastname:
+          type: string
+          example: Smith
+        email:
+          type: string
+          format: email
+          example: jane.smith@example.com
+        phone:
+          type: string
+          example: "+34600123456"
+          nullable: true
+        timezone:
+          type: string
+          example: Europe/Madrid
+        system_role:
+          $ref: '#/components/schemas/SystemRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        email_verified:
+          type: boolean
+        email_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key_prefix:
+          type: string
+          example: rms_a1b2
+        name:
+          type: string
+          example: CRM integration
+        status:
+          $ref: '#/components/schemas/ApiKeyStatus'
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKeyScope'
+
+    ApiKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          properties:
+            raw_key:
+              type: string
+              description: The raw API key. Shown exactly once. Store it securely.
+              example: rms_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        created_by_id:
+          type: string
+          format: uuid
+        subject:
+          type: string
+          example: Q3 Planning Meeting
+        description:
+          type: string
+          nullable: true
+          example: Quarterly planning session with all department leads.
+        event_datetime:
+          type: string
+          format: date-time
+          example: "2026-09-15T10:00:00Z"
+        event_timezone:
+          type: string
+          example: Europe/London
+        location:
+          type: string
+          nullable: true
+          example: Conference Room B, Floor 3
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        reminder_count:
+          type: integer
+          example: 3
+        subscriber_count:
+          type: integer
+          example: 12
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    EventAccess:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        user_name:
+          type: string
+          example: Jane Smith
+        user_email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/EventRole'
+        granted_by_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    Subscriber:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        firstname:
+          type: string
+          example: Carlos
+        lastname:
+          type: string
+          example: García
+        timezone:
+          type: string
+          nullable: true
+          example: Europe/Madrid
+          description: IANA timezone. If null, falls back to event owner timezone then UTC.
+        status:
+          $ref: '#/components/schemas/SubscriberStatus'
+        contacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriberContact'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SubscriberContact:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        subscriber_id:
+          type: string
+          format: uuid
+        channel:
+          $ref: '#/components/schemas/ContactChannel'
+        contact_value:
+          type: string
+          example: carlos.garcia@example.com
+        is_primary:
+          type: boolean
+        label:
+          type: string
+          nullable: true
+          example: work email
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        created_at:
+          type: string
+          format: date-time
+
+    Reminder:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        remind_at:
+          type: string
+          format: date-time
+          description: First (or only) occurrence. UTC.
+          example: "2026-09-08T09:00:00Z"
+        subject_template:
+          type: string
+          example: "Reminder: {{event_subject}} — {{event_date}}"
+        body_template:
+          type: string
+          example: "<p>Hi {{subscriber_firstname}},</p><p>This is reminder {{occurrence_number}} for <strong>{{event_subject}}</strong> on {{event_datetime}} at {{event_location}}.</p>"
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactChannel'
+          minItems: 1
+          example: [email, sms]
+        recurrence:
+          $ref: '#/components/schemas/Recurrence'
+        next_remind_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next scheduled occurrence for recurring reminders. Null for never or when recurrence is complete.
+        last_dispatched_at:
+          type: string
+          format: date-time
+          nullable: true
+        occurrence_count:
+          type: integer
+          example: 3
+          description: Number of times this reminder has been dispatched.
+        status:
+          $ref: '#/components/schemas/ReminderStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ReminderPreview:
+      type: object
+      properties:
+        preview_mode:
+          type: string
+          enum: [real_subscriber, sample]
+        subscriber_id:
+          type: string
+          format: uuid
+          nullable: true
+        subscriber_name:
+          type: string
+          example: Carlos García
+        occurrence_number:
+          type: integer
+          example: 1
+        rendered_subject:
+          type: string
+        rendered_body_html:
+          type: string
+          description: Full HTML email including wrapper.
+        rendered_body_plain:
+          type: string
+          description: Plain text version (HTML stripped) for SMS preview.
+        wrapper_applied:
+          type: boolean
+        timezone_resolved:
+          type: string
+          example: Europe/Madrid (CET)
+        timezone_fallback_used:
+          type: boolean
+
+    ReminderReport:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        reminder_id:
+          type: string
+          format: uuid
+        occurrence_number:
+          type: integer
+          example: 1
+        total_dispatches:
+          type: integer
+        total_sent:
+          type: integer
+        total_failed:
+          type: integer
+        total_skipped:
+          type: integer
+        failure_details:
+          type: array
+          items:
+            type: object
+            properties:
+              subscriber_id:
+                type: string
+                format: uuid
+              channel:
+                $ref: '#/components/schemas/ContactChannel'
+              contact_value:
+                type: string
+              reason:
+                type: string
+        report_sent_to_owner:
+          type: boolean
+        report_sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    EmailWrapperSettings:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        wrapper_html:
+          type: string
+          description: Full HTML document with exactly one {{body}} placeholder.
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SystemSetting:
+      type: object
+      properties:
+        key:
+          type: string
+          example: dispatch_poll_interval_seconds
+        value:
+          type: string
+          example: "60"
+        description:
+          type: string
+        updated_by_id:
+          type: string
+          format: uuid
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+
+  # ─── REUSABLE RESPONSES ─────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: UNAUTHORIZED
+              message: Authentication required.
+
+    Forbidden:
+      description: Authenticated but insufficient permissions.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: FORBIDDEN
+              message: You do not have permission to perform this action.
+
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: NOT_FOUND
+              message: The requested resource does not exist.
+
+    UnprocessableEntity:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: VALIDATION_ERROR
+              message: Template contains unknown variables.
+              details:
+                - field: body_template
+                  message: "Unknown variable: {{foo}}"
+
+    Conflict:
+      description: Business rule conflict.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: string
+            format: date-time
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: RATE_LIMIT_EXCEEDED
+              message: Too many requests. Please retry after 2026-04-10T14:01:00Z.
+              retry_after: "2026-04-10T14:01:00Z"
+
+  # ─── REUSABLE PARAMETERS ────────────────────────────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PerPageParam:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    EventIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReminderIdParam:
+      name: rid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SubscriberIdParam:
+      name: sid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ContactIdParam:
+      name: cid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ApiKeyIdParam:
+      name: kid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OccurrenceParam:
+      name: occ
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+
+# ─────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────
+paths:
+
+  # ── AUTH ─────────────────────────────────────────────────────
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Self-register a new account
+      description: |
+        Creates a new user account. Returns 403 if public registration is disabled
+        (`allow_public_registration` system setting is false).
+        The account is created immediately but cannot log in until the email is verified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [firstname, lastname, email, password]
+              properties:
+                firstname:
+                  type: string
+                  example: Jane
+                lastname:
+                  type: string
+                  example: Smith
+                email:
+                  type: string
+                  format: email
+                  example: jane.smith@example.com
+                password:
+                  type: string
+                  minLength: 8
+                  description: Minimum 8 characters, at least one number or symbol.
+                  example: "MyP@ssw0rd"
+                timezone:
+                  type: string
+                  example: Europe/Madrid
+                  description: IANA timezone string. Defaults to UTC if omitted.
+      responses:
+        '201':
+          description: Registration successful. Verification email sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+              example:
+                success: true
+                data:
+                  user_id: 123e4567-e89b-12d3-a456-426614174000
+                  message: Registration successful. Please check your email to verify your account.
+                meta: null
+                error: null
+        '403':
+          description: Public registration is disabled.
+          content:
+            application/json:
+              example:
+                success: false
+                data: null
+                error:
+                  code: REGISTRATION_DISABLED
+                  message: Public registration is currently closed.
+        '409':
+          description: Email already in use.
+          content:
+            application/json:
+              example:
+                success: false
+                data: null
+                error:
+                  code: EMAIL_IN_USE
+                  message: An account with this email address already exists.
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/verify-email:
+    get:
+      tags: [auth]
+      summary: Verify email address
+      description: |
+        Consumes a verification token sent by email.
+        Designed to be hit directly from a browser link click.
+        Token is valid for 24 hours and single-use.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Email verified successfully.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  message: Email verified. You may now log in.
+        '400':
+          description: Token invalid or expired.
+          content:
+            application/json:
+              example:
+                success: false
+                data: null
+                error:
+                  code: INVALID_OR_EXPIRED_TOKEN
+                  message: This verification link is invalid or has expired.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      summary: Resend verification email
+      description: |
+        Sends a new verification email. Rate limited to 3 requests per email per hour.
+        Always returns 200 regardless of whether the email exists, to prevent enumeration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Response always 200 (prevents email enumeration).
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  message: If this email is registered and unverified, a new link has been sent.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Login and obtain JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  expires_at: "2026-04-11T10:00:00Z"
+                  user:
+                    id: 123e4567-e89b-12d3-a456-426614174000
+                    firstname: Jane
+                    lastname: Smith
+                    email: jane.smith@example.com
+                    system_role: user
+        '401':
+          description: Invalid credentials.
+          content:
+            application/json:
+              example:
+                success: false
+                data: null
+                error:
+                  code: INVALID_CREDENTIALS
+                  message: Email or password is incorrect.
+        '403':
+          description: Email not verified.
+          content:
+            application/json:
+              example:
+                success: false
+                data: null
+                error:
+                  code: EMAIL_NOT_VERIFIED
+                  message: Please verify your email before logging in.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh JWT
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: New token issued.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  expires_at: "2026-04-12T10:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout and invalidate JWT
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  message: Logged out successfully.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── USERS ────────────────────────────────────────────────────
+  /users:
+    post:
+      tags: [users]
+      summary: Create user (admin)
+      description: Creates a pre-verified, immediately active user. system_admin only.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [firstname, lastname, email, password]
+              properties:
+                firstname:
+                  type: string
+                lastname:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                phone:
+                  type: string
+                  nullable: true
+                timezone:
+                  type: string
+                  default: UTC
+                system_role:
+                  $ref: '#/components/schemas/SystemRole'
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /users/{id}:
+    get:
+      tags: [users]
+      summary: Get user profile
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: User profile.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [users]
+      summary: Update user profile
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstname:
+                  type: string
+                lastname:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                  nullable: true
+                timezone:
+                  type: string
+      responses:
+        '200':
+          description: User updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    delete:
+      tags: [users]
+      summary: Soft-delete user (admin)
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: User soft-deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: User has events that must be reassigned first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /users/{id}/disable:
+    post:
+      tags: [users]
+      summary: Disable user (admin)
+      description: Disables the user account and immediately revokes all their active API keys.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: User disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{id}/enable:
+    post:
+      tags: [users]
+      summary: Re-enable user (admin)
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: User enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /users/{id}/email-wrapper:
+    get:
+      tags: [users]
+      summary: Get email wrapper settings
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: Wrapper settings.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmailWrapperSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: No custom wrapper set (returns 404 when no record exists).
+
+    put:
+      tags: [users]
+      summary: Create or replace custom email wrapper
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wrapper_html]
+              properties:
+                wrapper_html:
+                  type: string
+                  description: Full HTML document with exactly one {{body}} placeholder.
+                is_active:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Wrapper saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: wrapper_html missing {{body}} placeholder or contains multiple.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    patch:
+      tags: [users]
+      summary: Update email wrapper fields
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                wrapper_html:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Wrapper updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      tags: [users]
+      summary: Remove custom wrapper (reverts to system default)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: Custom wrapper removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ── API KEYS ─────────────────────────────────────────────────
+  /users/{id}/api-keys:
+    post:
+      tags: [api-keys]
+      summary: Create API key
+      description: |
+        Creates a new API key. The raw key is returned exactly once in the response.
+        It is never stored and cannot be retrieved again. Maximum 10 active keys per user.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: CRM integration
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: Optional expiry. Null means no expiry.
+                scopes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ApiKeyScope'
+                  description: Optional scope restrictions. Empty array or omitted means unrestricted.
+      responses:
+        '201':
+          description: Key created. Raw key shown once.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ApiKeyCreated'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Maximum 10 active API keys reached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    get:
+      tags: [api-keys]
+      summary: List API keys
+      description: Lists keys showing prefix and metadata. Never returns the raw key.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: List of API keys.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ApiKey'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /users/{id}/api-keys/{kid}:
+    patch:
+      tags: [api-keys]
+      summary: Update API key name or expiry
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+        - $ref: '#/components/parameters/ApiKeyIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        '200':
+          description: Key updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{id}/api-keys/{kid}/revoke:
+    post:
+      tags: [api-keys]
+      summary: Revoke API key
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+        - $ref: '#/components/parameters/ApiKeyIdParam'
+      responses:
+        '200':
+          description: Key revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{id}/api-keys/{kid}/scopes:
+    get:
+      tags: [api-keys]
+      summary: List scopes for API key
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+        - $ref: '#/components/parameters/ApiKeyIdParam'
+      responses:
+        '200':
+          description: Scope list.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  scopes: [events:read, subscribers:read]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      tags: [api-keys]
+      summary: Replace scope list for API key
+      description: Replaces the entire scope list. Send an empty array for unrestricted access.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+        - $ref: '#/components/parameters/ApiKeyIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scopes]
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ApiKeyScope'
+                  example: [events:read, subscribers:read]
+      responses:
+        '200':
+          description: Scopes updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ── EVENTS ───────────────────────────────────────────────────
+  /events:
+    post:
+      tags: [events]
+      summary: Create event
+      description: Creates a new event. The authenticated user is automatically assigned the owner role.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, event_datetime]
+              properties:
+                owner_id:
+                  type: string
+                  format: uuid
+                  description: Defaults to authenticated user if omitted.
+                subject:
+                  type: string
+                  maxLength: 255
+                  example: Q3 Planning Meeting
+                description:
+                  type: string
+                  nullable: true
+                event_datetime:
+                  type: string
+                  format: date-time
+                  example: "2026-09-15T10:00:00Z"
+                event_timezone:
+                  type: string
+                  example: Europe/London
+                  description: IANA timezone. Used for recurrence day-of-week calculations.
+                location:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Event created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    get:
+      tags: [events]
+      summary: List events
+      description: |
+        Lists events the authenticated user can access.
+        Default excludes archived events. Use `?status=archived` or `?status=all` to include them.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, cancelled, archived, all]
+            default: active
+        - name: from
+          in: query
+          description: Filter events with event_datetime on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: Filter events with event_datetime on or before this date.
+          schema:
+            type: string
+            format: date
+        - name: owner_id
+          in: query
+          description: Filter by owner (system_admin only for other users' events).
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Paginated event list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /events/{id}:
+    get:
+      tags: [events]
+      summary: Get event detail
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      responses:
+        '200':
+          description: Full event detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [events]
+      summary: Update event fields
+      description: contributor+ access required. Archived events return 409.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                description:
+                  type: string
+                  nullable: true
+                event_datetime:
+                  type: string
+                  format: date-time
+                event_timezone:
+                  type: string
+                location:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Event updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+    delete:
+      tags: [events]
+      summary: Delete event
+      description: owner only. Blocked if any reminder_dispatch records exist (use cancel instead).
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      responses:
+        '200':
+          description: Event deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Cannot delete — dispatch records exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                success: false
+                data: null
+                error:
+                  code: DISPATCH_RECORDS_EXIST
+                  message: This event has dispatch history. Cancel instead of deleting.
+
+  /events/{id}/owner:
+    patch:
+      tags: [events]
+      summary: Reassign event owner
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner_id]
+              properties:
+                owner_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Owner updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /events/{id}/cancel:
+    post:
+      tags: [events]
+      summary: Cancel event
+      description: owner only. Transitions all scheduled and recurring reminders to cancelled.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      responses:
+        '200':
+          description: Event cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{id}/unarchive:
+    post:
+      tags: [events]
+      summary: Restore archived event (admin)
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      responses:
+        '200':
+          description: Event restored to active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{id}/access:
+    get:
+      tags: [events]
+      summary: List access grants
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      responses:
+        '200':
+          description: Access grant list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/EventAccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [events]
+      summary: Grant role to user
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, role]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                role:
+                  $ref: '#/components/schemas/EventRole'
+      responses:
+        '201':
+          description: Access granted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: User already has a role on this event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /events/{id}/access/{uid}:
+    patch:
+      tags: [events]
+      summary: Change user role
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  $ref: '#/components/schemas/EventRole'
+      responses:
+        '200':
+          description: Role updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      tags: [events]
+      summary: Revoke user access
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Access revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Cannot revoke the owner role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ── REMINDERS ────────────────────────────────────────────────
+  /events/{id}/reminders:
+    post:
+      tags: [reminders]
+      summary: Add reminder to event
+      description: |
+        contributor+ access required. Maximum 5 reminders per event.
+        All `{{variables}}` in subject_template and body_template are validated.
+        Unknown variables return 422.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remind_at, subject_template, body_template, channels]
+              properties:
+                remind_at:
+                  type: string
+                  format: date-time
+                  description: First (or only) occurrence. Must be before event_datetime and at least 5 minutes in the future.
+                  example: "2026-09-08T09:00:00Z"
+                subject_template:
+                  type: string
+                  example: "Reminder: {{event_subject}} — {{event_date}}"
+                body_template:
+                  type: string
+                  example: "<p>Hi {{subscriber_firstname}},</p><p>Reminder {{occurrence_number}} for <strong>{{event_subject}}</strong>.</p>"
+                channels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ContactChannel'
+                  minItems: 1
+                recurrence:
+                  $ref: '#/components/schemas/Recurrence'
+      responses:
+        '201':
+          description: Reminder created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Reminder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Maximum 5 reminders reached or event is archived/cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    get:
+      tags: [reminders]
+      summary: List reminders for event
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      responses:
+        '200':
+          description: Reminder list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Reminder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /events/{id}/reminders/{rid}:
+    get:
+      tags: [reminders]
+      summary: Get reminder detail
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/ReminderIdParam'
+      responses:
+        '200':
+          description: Reminder detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Reminder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [reminders]
+      summary: Update reminder
+      description: |
+        contributor+ access required.
+        Blocked if status is `recurring`, `sent`, or `cancelled`.
+        Full edit permitted while status is `scheduled`.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/ReminderIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remind_at:
+                  type: string
+                  format: date-time
+                subject_template:
+                  type: string
+                body_template:
+                  type: string
+                channels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ContactChannel'
+                recurrence:
+                  $ref: '#/components/schemas/Recurrence'
+      responses:
+        '200':
+          description: Reminder updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Reminder is not in a mutable state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                success: false
+                data: null
+                error:
+                  code: REMINDER_NOT_EDITABLE
+                  message: Reminders with status recurring, sent, or cancelled cannot be edited.
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    delete:
+      tags: [reminders]
+      summary: Delete or cancel reminder
+      description: owner only. Blocked if dispatch records exist (transitions to cancelled instead).
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/ReminderIdParam'
+      responses:
+        '200':
+          description: Reminder deleted or cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{id}/reminders/{rid}/preview:
+    post:
+      tags: [reminders]
+      summary: Preview rendered reminder
+      description: |
+        Renders the reminder templates for a specific subscriber and occurrence.
+        Uses real subscriber data if available; falls back to sample data.
+        Does not create any dispatch records.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/ReminderIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subscriber_id:
+                  type: string
+                  format: uuid
+                  description: If omitted, uses first subscriber or sample data.
+                occurrence_number:
+                  type: integer
+                  minimum: 1
+                  default: 1
+                  description: Which occurrence to preview (affects {{occurrence_number}} variable).
+      responses:
+        '200':
+          description: Rendered preview.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReminderPreview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{id}/reminders/{rid}/report:
+    get:
+      tags: [reminders]
+      summary: List all occurrence reports for reminder
+      description: Returns one report per dispatched occurrence.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/ReminderIdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Paginated list of occurrence reports.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ReminderReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /events/{id}/reminders/{rid}/report/{occ}:
+    get:
+      tags: [reminders]
+      summary: Get report for specific occurrence
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/ReminderIdParam'
+        - $ref: '#/components/parameters/OccurrenceParam'
+      responses:
+        '200':
+          description: Occurrence report.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReminderReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── SUBSCRIBERS ──────────────────────────────────────────────
+  /events/{id}/subscribers:
+    post:
+      tags: [subscribers]
+      summary: Add subscriber to event
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [firstname, lastname, contacts]
+              properties:
+                firstname:
+                  type: string
+                  example: Carlos
+                lastname:
+                  type: string
+                  example: García
+                timezone:
+                  type: string
+                  nullable: true
+                  example: Europe/Madrid
+                user_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                contacts:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [channel, contact_value]
+                    properties:
+                      channel:
+                        $ref: '#/components/schemas/ContactChannel'
+                      contact_value:
+                        type: string
+                        example: carlos.garcia@example.com
+                      is_primary:
+                        type: boolean
+                        default: false
+                      label:
+                        type: string
+                        nullable: true
+      responses:
+        '201':
+          description: Subscriber added.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Subscriber'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    get:
+      tags: [subscribers]
+      summary: List subscribers for event
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/SubscriberStatus'
+      responses:
+        '200':
+          description: Paginated subscriber list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /events/{id}/subscribers/{sid}:
+    get:
+      tags: [subscribers]
+      summary: Get subscriber detail
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+      responses:
+        '200':
+          description: Subscriber with contacts.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Subscriber'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [subscribers]
+      summary: Update subscriber
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstname:
+                  type: string
+                lastname:
+                  type: string
+                timezone:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Subscriber updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [subscribers]
+      summary: Remove subscriber
+      description: contributor+ access. Blocked if this is the last active subscriber on the event.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+      responses:
+        '200':
+          description: Subscriber removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Cannot remove the last active subscriber.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                success: false
+                data: null
+                error:
+                  code: LAST_SUBSCRIBER
+                  message: An event must have at least one active subscriber.
+
+  /events/{id}/subscribers/{sid}/unsubscribe:
+    post:
+      tags: [subscribers]
+      summary: Soft unsubscribe
+      description: Sets subscriber status to unsubscribed. Retained for audit. Receives no further reminders.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+      responses:
+        '200':
+          description: Subscriber unsubscribed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /events/{id}/subscribers/{sid}/contacts:
+    post:
+      tags: [subscribers]
+      summary: Add contact to subscriber
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, contact_value]
+              properties:
+                channel:
+                  $ref: '#/components/schemas/ContactChannel'
+                contact_value:
+                  type: string
+                  example: carlos.garcia@example.com
+                is_primary:
+                  type: boolean
+                  default: false
+                label:
+                  type: string
+                  nullable: true
+                  example: work email
+      responses:
+        '201':
+          description: Contact added.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriberContact'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /events/{id}/subscribers/{sid}/contacts/{cid}:
+    patch:
+      tags: [subscribers]
+      summary: Update contact
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+        - $ref: '#/components/parameters/ContactIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contact_value:
+                  type: string
+                is_primary:
+                  type: boolean
+                label:
+                  type: string
+                  nullable: true
+                status:
+                  $ref: '#/components/schemas/ContactStatus'
+      responses:
+        '200':
+          description: Contact updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [subscribers]
+      summary: Remove contact
+      description: Blocked if this is the last active contact for the subscriber.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventIdParam'
+        - $ref: '#/components/parameters/SubscriberIdParam'
+        - $ref: '#/components/parameters/ContactIdParam'
+      responses:
+        '200':
+          description: Contact removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Cannot remove the last active contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ── ADMIN ────────────────────────────────────────────────────
+  /admin/settings:
+    get:
+      tags: [admin]
+      summary: List all system settings
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: All system settings.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SystemSetting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/settings/{key}:
+    patch:
+      tags: [admin]
+      summary: Update a system setting
+      description: |
+        Updates a system setting value.
+        `dispatch_poll_interval_seconds`: validated between 10 and 3600. Takes effect within one poll cycle — no restart required.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            example: dispatch_poll_interval_seconds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+                  example: "30"
+      responses:
+        '200':
+          description: Setting updated.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemSetting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Setting key not found.
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/users:
+    get:
+      tags: [admin]
+      summary: List all users (admin)
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: q
+          in: query
+          description: Search by name or email.
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/UserStatus'
+        - name: system_role
+          in: query
+          schema:
+            $ref: '#/components/schemas/SystemRole'
+      responses:
+        '200':
+          description: Paginated user list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'

@@ -1,0 +1,13 @@
+{
+  "name": "@rms/db",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "migrate": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
+    "generate": "prisma generate",
+    "studio": "prisma studio"
+  },
+  "dependencies": { "@prisma/client": "^5.0.0" },
+  "devDependencies": { "prisma": "^5.0.0" }
+}

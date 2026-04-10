@@ -12,19 +12,12 @@ logs/
 .DS_Store
 Thumbs.db
 .vscode/
+.vscode/sqltools.example.json
 .idea/
 
 # Patterns requested to be ignored before commit
 scaffold/
 docs/
-apps/
-rms_project_scaffold.zip
-app/api/src/routes/
-app/api/src/middleware/
-app/api/src/services/
-app/api/src/utils/
-infra/nginx/
-infra/supervisor/
-infra/pm2/
 .venv/
-.env.example
+*.zip
+.env.*
