@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireEventRole } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, fail, notFound, forbidden } from '../utils/response.js';
 
@@ -57,7 +57,8 @@ eventsRouter.get('/', authenticate, async (req, res, next) => {
 });
 
 // GET /events/:id
-eventsRouter.get('/:id', authenticate, async (req, res, next) => {
+// Allowed: owner, any event access role (OWNER, CONTRIBUTOR, READER), or system_admin
+eventsRouter.get('/:id', authenticate, requireEventRole('OWNER', 'CONTRIBUTOR', 'READER'), async (req, res, next) => {
 	try {
 		const { id } = req.params;
 		const event = await prisma.event.findUnique({ where: { id } });
@@ -67,29 +68,19 @@ eventsRouter.get('/:id', authenticate, async (req, res, next) => {
 		if (String(event.status).toLowerCase() !== 'active' && String(req.user.systemRole).toLowerCase() !== 'system_admin')
 			return notFound(res, 'Event not found.');
 
-		// Check access: owner, access record, or system_admin
-		if (String(req.user.systemRole).toLowerCase() !== 'system_admin') {
-			if (event.ownerId !== req.user.id) {
-				const access = await prisma.eventAccess.findUnique({ where: { eventId_userId: { eventId: id, userId: req.user.id } } });
-				if (!access) return forbidden(res, 'Insufficient event access.');
-			}
-		}
-
 		const ev = await prisma.event.findUnique({ where: { id }, include: { reminders: true, subscribers: true } });
 		return ok(res, { event: ev });
 	} catch (e) { next(e); }
 });
 
 // PATCH /events/:id - update event (owner or system_admin)
-eventsRouter.patch('/:id', authenticate, async (req, res, next) => {
+// PATCH /events/:id - update event (owner or system_admin)
+eventsRouter.patch('/:id', authenticate, requireEventRole('OWNER'), async (req, res, next) => {
 	try {
 		const { id } = req.params;
 		const { subject, description, eventDatetime, eventTimezone, location, status } = req.body || {};
 		const event = await prisma.event.findUnique({ where: { id } });
 		if (!event) return notFound(res, 'Event not found.');
-
-		if (String(req.user.systemRole).toLowerCase() !== 'system_admin' && event.ownerId !== req.user.id)
-			return forbidden(res, 'Only event owner or system_admin may modify the event.');
 
 		const data = {};
 		if (typeof subject === 'string') data.subject = subject;
@@ -107,14 +98,12 @@ eventsRouter.patch('/:id', authenticate, async (req, res, next) => {
 });
 
 // DELETE /events/:id - soft-delete (archive) (owner or system_admin)
-eventsRouter.delete('/:id', authenticate, async (req, res, next) => {
+// DELETE /events/:id - soft-delete (archive) (owner or system_admin)
+eventsRouter.delete('/:id', authenticate, requireEventRole('OWNER'), async (req, res, next) => {
 	try {
 		const { id } = req.params;
 		const event = await prisma.event.findUnique({ where: { id } });
 		if (!event) return notFound(res, 'Event not found.');
-
-		if (String(req.user.systemRole).toLowerCase() !== 'system_admin' && event.ownerId !== req.user.id)
-			return forbidden(res, 'Only event owner or system_admin may delete the event.');
 
 		const archived = await prisma.event.update({ where: { id }, data: { status: 'ARCHIVED' }, select: { id: true, status: true } });
 		return ok(res, { event: archived });

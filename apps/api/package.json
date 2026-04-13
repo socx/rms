@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "exec nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "jest --testPathPattern=src",
+    "test": "jest --testPathPattern=src --runInBand",
     "lint": "eslint src"
   },
   "jest": {

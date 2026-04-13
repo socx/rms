@@ -37,7 +37,16 @@ export async function authenticate(req, res, next) {
 
 export function requireEventRole(...roles) {
   return async (req, res, next) => {
-    if (req.user.systemRole === 'system_admin') return next();
+    // Allow system_admin regardless of event access (case-insensitive)
+    if (String(req.user.systemRole).toLowerCase() === 'system_admin') return next();
+
+    // Allow event owner
+    const event = await prisma.event.findUnique({ where: { id: req.params.id }, select: { ownerId: true } });
+    if (event && event.ownerId === req.user.id) {
+      req.eventRole = 'OWNER';
+      return next();
+    }
+
     const access = await prisma.eventAccess.findUnique({
       where: { eventId_userId: { eventId: req.params.id, userId: req.user.id } },
     });
