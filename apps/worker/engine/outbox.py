@@ -4,7 +4,7 @@ Process the email_outbox table: send pending emails and update status.
 import logging
 from datetime import datetime, timezone
 from sqlalchemy import text
-from .delivery import EmailAdapter, RETRY_MAX
+from . import delivery
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def process_outbox(session, batch_size: int = 20):
 
     logger.info('Found %d outbox email(s) to process', len(rows))
 
-    adapter = EmailAdapter()
+    adapter = delivery.EmailAdapter()
 
     for row in rows:
         outbox_id = str(row['id'])
@@ -47,7 +47,7 @@ def process_outbox(session, batch_size: int = 20):
             logger.info('Outbox email %s sent', outbox_id)
         except Exception as e:
             logger.exception('Failed to send outbox email %s: %s', outbox_id, e)
-            if attempts >= RETRY_MAX:
+            if attempts >= delivery.RETRY_MAX:
                 session.execute(text("""
                     UPDATE email_outbox
                     SET status = 'failed', attempts = :a, last_attempt_at = NOW()
