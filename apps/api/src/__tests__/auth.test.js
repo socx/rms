@@ -53,6 +53,19 @@ describe('Auth routes', () => {
     expect(reg.status).toBe(201);
     expect(reg.body.success).toBe(true);
 
+    // Request resend of verification
+    const resend = await request(baseUrl)
+      .post('/api/v1/auth/resend-verification')
+      .send({ email })
+      .set('Accept', 'application/json');
+    // Accept either success (created token) or already-verified response
+    if (resend.status === 200) {
+      expect(resend.body.success).toBe(true);
+    } else {
+      expect(resend.status).toBe(400);
+      expect(['ALREADY_VERIFIED']).toContain(resend.body.error.code);
+    }
+
     // Try login - should fail if email not verified. If registration flow auto-verifies in test DB, login should succeed.
     const login = await request(baseUrl)
       .post('/api/v1/auth/login')

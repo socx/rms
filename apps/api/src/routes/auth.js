@@ -96,3 +96,25 @@ authRouter.get('/verify-email', async (req, res, next) => {
 		return ok(res, { message: 'Email verified successfully.' });
 	} catch (e) { next(e); }
 });
+
+// POST /auth/resend-verification
+authRouter.post('/resend-verification', async (req, res, next) => {
+	try {
+		const { email } = req.body || {};
+		if (!email) return fail(res, 'INVALID_PAYLOAD', 'email is required.', 400);
+
+		const user = await prisma.user.findUnique({ where: { email } });
+		// Do not reveal whether the email exists; respond generically if not found
+		if (!user) return ok(res, { message: 'If the email exists and is unverified, a verification email was sent.' });
+
+		if (user.emailVerified) return fail(res, 'ALREADY_VERIFIED', 'Email address is already verified.', 400);
+
+		const rawToken = crypto.randomBytes(32).toString('hex');
+		const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+		await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt: expires } });
+
+		// In production we'd enqueue an email; for tests we just create the token.
+		return ok(res, { message: 'Verification email sent.' });
+	} catch (e) { next(e); }
+});
