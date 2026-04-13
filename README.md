@@ -64,6 +64,17 @@ python main.py
 - Make sure a valid `.env` (or `.env.dev`) with `DATABASE_URL` exists at the repo root so all services can connect to the database.
 - To run services individually, use `npm run dev:api`, `npm run dev:web`, or `npm run dev:worker`.
 
+dev:secure notes
+
+- `npm run dev:secure` will generate development TLS certs and start all services with the API attempting to bind HTTPS.
+- If the requested `SSL_PORT` is already in use the API will try to bind an ephemeral free port automatically and log which port was selected.
+- To query the health endpoint over HTTPS for local testing (accepting the self-signed cert):
+
+```bash
+curl -k https://localhost:3443/health
+```
+
+
 HTTPS (development)
 
 The API can run with HTTPS in development by providing a PEM key and certificate and pointing env vars at them. Example using self-signed certs:

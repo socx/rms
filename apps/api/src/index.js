@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import fs from 'fs';
 import https from 'https';
+import path from 'path';
 import helmet from 'helmet';
 import cors from 'cors';
 import { authRouter }        from './routes/auth.js';
@@ -31,14 +32,54 @@ const PORT = process.env.PORT || 3000;
 const SSL_KEY_PATH = process.env.SSL_KEY_PATH;
 const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
 const SSL_PORT = process.env.SSL_PORT || PORT;
+const SSL_PORT_FILE = process.env.SSL_PORT_FILE || path.resolve('dev-certs', 'ssl_port.txt');
+
+const writeSslPortFile = (port) => {
+	try {
+		fs.writeFileSync(SSL_PORT_FILE, String(port) + '\n');
+	} catch (e) {
+		console.warn('Failed to write SSL port file:', e);
+	}
+};
 
 if (SSL_KEY_PATH && SSL_CERT_PATH) {
 	try {
 		const key = fs.readFileSync(SSL_KEY_PATH);
 		const cert = fs.readFileSync(SSL_CERT_PATH);
-		https.createServer({ key, cert }, app).listen(SSL_PORT, () => console.log(`RMS API listening (https) on port ${SSL_PORT}`));
+		const server = https.createServer({ key, cert }, app);
+
+		// If the requested SSL port is busy, attempt to bind to an ephemeral port instead of failing.
+		let attemptedEphemeral = false;
+		server.on('error', (err) => {
+			if (err && err.code === 'EADDRINUSE' && !attemptedEphemeral) {
+				attemptedEphemeral = true;
+				console.warn(`Requested SSL port ${SSL_PORT} is in use — attempting an ephemeral port instead.`);
+				try {
+					server.listen(0, () => {
+							const addr = server.address();
+							console.log(`RMS API listening (https) on port ${addr.port} (auto-selected)`);
+							writeSslPortFile(addr.port);
+						});
+					return;
+				} catch (e) {
+					console.error('Failed to bind to an ephemeral SSL port, falling back to HTTP:', e);
+				}
+			}
+
+			// Any other error or if ephemeral bind failed: fall back to HTTP.
+			console.error('HTTPS server error, falling back to HTTP:', err);
+			if (!app.locals._httpStarted) {
+				app.locals._httpStarted = true;
+				app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
+			}
+		});
+
+		server.listen(SSL_PORT, () => {
+			console.log(`RMS API listening (https) on port ${SSL_PORT}`);
+			writeSslPortFile(SSL_PORT);
+		});
 	} catch (err) {
-		console.error('Failed to start HTTPS server, falling back to HTTP:', err);
+		console.error('Failed to read SSL files, falling back to HTTP:', err);
 		app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
 	}
 } else {

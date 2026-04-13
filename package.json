@@ -11,6 +11,8 @@
     "dev:web": "npm run dev   --workspace=apps/web",
     "dev:worker": "bash -lc \"cd apps/worker && . .venv_worker/bin/activate && python main.py\"",
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
+    "certs:generate": "node scripts/generate-dev-certs.js",
+    "dev:secure": "node scripts/dev-with-certs.js",
     "build:web": "npm run build --workspace=apps/web",
     "db:migrate": "npm run migrate --workspace=packages/db",
     "db:generate": "npm run generate --workspace=packages/db",
@@ -18,6 +20,7 @@
     "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {
-    "concurrently": "^8.2.0"
+    "concurrently": "^8.2.0",
+    "selfsigned": "^2.1.1"
   }
 }
