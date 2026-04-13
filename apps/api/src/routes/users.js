@@ -69,3 +69,20 @@ usersRouter.post('/:id/enable', authenticate, async (req, res, next) => {
 		return ok(res, { user });
 	} catch (e) { next(e); }
 });
+
+// DELETE /users/:id
+usersRouter.delete('/:id', authenticate, async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		// Only system_admin may delete users
+		if (String(req.user.systemRole).toLowerCase() !== 'system_admin') return forbidden(res, 'system_admin role required.');
+		if (req.user.id === id) return fail(res, 'CANNOT_DELETE_SELF', 'You cannot delete your own account.', 400);
+
+		const exists = await prisma.user.findUnique({ where: { id } });
+		if (!exists) return notFound(res, 'User not found.');
+
+		// Soft-delete by setting status to DELETED
+		const user = await prisma.user.update({ where: { id }, data: { status: 'DELETED' }, select: { id: true, status: true } });
+		return ok(res, { user });
+	} catch (e) { next(e); }
+});
