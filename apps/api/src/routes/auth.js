@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/prisma.js';
-import { created, conflict, fail, forbidden } from '../utils/response.js';
+import { ok, created, conflict, fail, forbidden } from '../utils/response.js';
 
 export const authRouter = Router();
 
@@ -71,5 +71,28 @@ authRouter.post('/login', async (req, res, next) => {
 		const token = jwt.sign({ sub: user.id, role: user.systemRole }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
 		return ok ? created(res, { token, user: { id: user.id, email: user.email, firstname: user.firstname, lastname: user.lastname, timezone: user.timezone } }) : fail(res, 'INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
+	} catch (e) { next(e); }
+});
+
+// GET /auth/verify-email?token=...
+authRouter.get('/verify-email', async (req, res, next) => {
+	try {
+		const token = String(req.query.token || req.query.t || '').trim();
+		if (!token) return fail(res, 'INVALID_PAYLOAD', 'verification token is required.', 400);
+
+		const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+		const record = await prisma.emailVerificationToken.findUnique({ where: { tokenHash } });
+		if (!record) return fail(res, 'INVALID_TOKEN', 'Verification token is invalid.', 400);
+		if (record.usedAt) return fail(res, 'TOKEN_USED', 'This verification token has already been used.', 400);
+		if (record.expiresAt && record.expiresAt < new Date()) return fail(res, 'TOKEN_EXPIRED', 'Verification token has expired.', 400);
+
+		// Mark user's email as verified and mark token as used in a transaction
+		const now = new Date();
+		await prisma.$transaction([
+			prisma.user.update({ where: { id: record.userId }, data: { emailVerified: true, emailVerifiedAt: now } }),
+			prisma.emailVerificationToken.update({ where: { id: record.id }, data: { usedAt: now } }),
+		]);
+
+		return ok(res, { message: 'Email verified successfully.' });
 	} catch (e) { next(e); }
 });
