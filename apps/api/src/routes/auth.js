@@ -154,3 +154,22 @@ authRouter.post('/refresh', async (req, res, next) => {
 		return ok(res, { token });
 	} catch (e) { next(e); }
 });
+
+// POST /auth/logout
+authRouter.post('/logout', async (req, res, next) => {
+	try {
+		const bearer = req.headers.authorization?.startsWith('Bearer ')
+			? req.headers.authorization.slice(7) : null;
+
+		if (!bearer) return fail(res, 'INVALID_PAYLOAD', 'Authorization bearer token is required.', 401);
+
+		try {
+			jwt.verify(bearer, process.env.JWT_SECRET);
+		} catch (e) {
+			return fail(res, 'INVALID_TOKEN', 'Invalid or expired token.', 401);
+		}
+
+		// Stateless JWT: we don't store session state here. Client should discard token.
+		return ok(res, { message: 'Logged out.' });
+	} catch (e) { next(e); }
+});
