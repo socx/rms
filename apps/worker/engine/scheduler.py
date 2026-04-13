@@ -8,6 +8,7 @@ import time
 import logging
 from .db import SessionLocal, get_setting
 from .poller import poll_and_dispatch
+from .outbox import process_outbox
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,13 @@ def run_scheduler():
                 last_interval = interval
 
                 lookahead = int(get_setting(session, 'dispatch_lookahead_seconds', '65'))
+                # Dispatch reminders
                 poll_and_dispatch(session, lookahead_seconds=lookahead)
+                # Process any queued emails in the outbox
+                try:
+                    process_outbox(session)
+                except Exception:
+                    logger.exception('Error processing email outbox')
 
         except Exception as e:
             logger.exception('Error in scheduler loop: %s', e)
