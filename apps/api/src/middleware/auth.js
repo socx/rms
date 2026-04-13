@@ -49,7 +49,7 @@ export function requireEventRole(...roles) {
 }
 
 export function requireAdmin(req, res, next) {
-  if (req.user?.systemRole !== 'system_admin')
+  if (String(req.user?.systemRole).toLowerCase() !== 'system_admin')
     return res.status(403).json(err('FORBIDDEN', 'system_admin role required.'));
   next();
 }
