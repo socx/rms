@@ -32,7 +32,29 @@ const PORT = process.env.PORT || 3000;
 const SSL_KEY_PATH = process.env.SSL_KEY_PATH;
 const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
 const SSL_PORT = process.env.SSL_PORT || PORT;
-const SSL_PORT_FILE = process.env.SSL_PORT_FILE || path.resolve('dev-certs', 'ssl_port.txt');
+const SSL_PORT_FILE = (() => {
+	if (process.env.SSL_PORT_FILE) return process.env.SSL_PORT_FILE;
+	// Try to locate repo root (a package.json with "workspaces") upwards from cwd
+	let cur = process.cwd();
+	for (let i = 0; i < 5; i++) {
+		try {
+			const pj = path.resolve(cur, 'package.json');
+			if (fs.existsSync(pj)) {
+				const json = JSON.parse(fs.readFileSync(pj, 'utf8'));
+				if (json && (json.workspaces || json.name === 'rms')) {
+					return path.resolve(cur, 'infra', 'dev-certs', 'ssl_port.txt');
+				}
+			}
+		} catch (e) {
+			// ignore
+		}
+		const parent = path.resolve(cur, '..');
+		if (parent === cur) break;
+		cur = parent;
+	}
+	// fallback to repo-relative path from current cwd
+	return path.resolve('infra', 'dev-certs', 'ssl_port.txt');
+})();
 
 const writeSslPortFile = (port) => {
 	try {

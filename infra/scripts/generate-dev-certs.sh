@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./scripts/generate-dev-certs.sh [out-dir]
-OUT_DIR="${1:-dev-certs}"
+# Usage: ./infra/scripts/generate-dev-certs.sh [out-dir]
+OUT_DIR="${1:-infra/dev-certs}"
 KEY="$OUT_DIR/dev.key"
 CRT="$OUT_DIR/dev.crt"
 

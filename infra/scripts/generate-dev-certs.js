@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /* Cross-platform dev cert generator.
  * Tries to use `openssl` when available, falls back to `selfsigned` npm package.
- * Usage: node scripts/generate-dev-certs.js [out-dir]
+ * Usage: node infra/scripts/generate-dev-certs.js [out-dir]
  */
 
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 
-const OUT_DIR = process.argv[2] || 'dev-certs';
+const OUT_DIR = process.argv[2] || 'infra/dev-certs';
 const KEY = path.join(OUT_DIR, 'dev.key');
 const CRT = path.join(OUT_DIR, 'dev.crt');
 

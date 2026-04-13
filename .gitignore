@@ -21,3 +21,8 @@ docs/
 .venv/
 *.zip
 .env.*
+
+# Dev certificates and runtime SSL port file
+infra/dev-certs/
+infra/dev-certs/*
+infra/dev-certs/ssl_port.txt
