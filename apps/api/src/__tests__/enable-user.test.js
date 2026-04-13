@@ -1,61 +1,37 @@
 const request = require('supertest');
-const cp = require('child_process');
 const path = require('path');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 
 describe('Admin enable user', () => {
-  let baseUrl = 'http://localhost:3000';
-  let serverProc;
+  const WORKER_ID = process.env.JEST_WORKER_ID ? parseInt(process.env.JEST_WORKER_ID, 10) : 0;
+  const EXPECTED_PORT = 3000 + WORKER_ID;
+  process.env.PORT = '0';
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  let baseUrl = `http://localhost:${EXPECTED_PORT}`;
+  let serverInfo;
+  const { startServer, stopServer } = require('../test_helpers/server');
 
-  // Load repo .env.dev for psql usage
+  // Load repo .env.dev
   try {
     const rootEnv = path.resolve(__dirname, '..', '..', '..', '..', '.env.dev');
     if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv, override: true });
   } catch (e) {}
 
-  const waitForHealth = (url, timeout = 10000) => {
-    const start = Date.now();
-    const { URL } = require('url');
-    const http = require('http');
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const u = new URL(url + '/health');
-        const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            res.resume();
-            return resolve(true);
-          }
-          res.resume();
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.on('error', () => {
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.end();
-      };
-      check();
-    });
-  };
-
   beforeAll(async () => {
-    const indexPath = path.resolve(__dirname, '..', 'index.js');
-    serverProc = cp.spawn(process.execPath, [indexPath], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    serverProc.stdout.on('data', d => process.stdout.write('[api] ' + d));
-    serverProc.stderr.on('data', d => process.stderr.write('[api.err] ' + d));
-    await waitForHealth(baseUrl, 15000);
+    serverInfo = await startServer(EXPECTED_PORT, { timeout: 15000 });
+    baseUrl = serverInfo.baseUrl;
   }, 20000);
 
-  afterAll(() => {
-    if (serverProc) serverProc.kill();
+  afterAll(async () => {
+    await stopServer(serverInfo);
   });
 
   test('admin can enable a disabled user', async () => {
-    const targetEmail = `enable-target+${Date.now()%100000}@example.com`;
-    const adminEmail = `enable-admin+${Date.now()%100000}@example.com`;
+    const suffix = `${Date.now()%100000}-w${WORKER_ID}`;
+    const targetEmail = `enable-target+${suffix}@example.com`;
+    const adminEmail = `enable-admin+${suffix}@example.com`;
     const pw = 'Password01';
 
     // Register target user
@@ -66,19 +42,17 @@ describe('Admin enable user', () => {
     const r2 = await request(baseUrl).post('/api/v1/auth/register').send({ firstname: 'A', lastname: 'Admin', email: adminEmail, password: pw, timezone: 'UTC' }).set('Accept', 'application/json');
     expect(r2.status).toBe(201);
 
-    const conn = process.env.DATABASE_URL;
-    if (!conn) throw new Error('No DATABASE_URL available for psql');
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    try {
+      const adminRec = await prisma.user.findUnique({ where: { email: adminEmail } });
+      expect(adminRec).toBeTruthy();
+      await prisma.user.update({ where: { id: adminRec.id }, data: { systemRole: 'SYSTEM_ADMIN', emailVerified: true, emailVerifiedAt: new Date() } });
+      const adminToken = jwt.sign({ sub: adminRec.id, role: 'system_admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    // Promote admin
-    const adminIdOut = cp.execSync(`psql "${conn}" -t -c "SELECT id FROM users WHERE email='${adminEmail}' LIMIT 1;"`, { encoding: 'utf8' }).trim();
-    expect(adminIdOut.length).toBeGreaterThan(0);
-    const promoteSql = `UPDATE users SET system_role='system_admin', email_verified=true, email_verified_at=now() WHERE id='${adminIdOut}';`;
-    cp.execSync(`psql "${conn}" -t -c "${promoteSql.replace(/"/g, '\\"')}"`, { encoding: 'utf8' });
-    const adminToken = jwt.sign({ sub: adminIdOut, role: 'system_admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-    // Find target id
-    const targetId = cp.execSync(`psql "${conn}" -t -c "SELECT id FROM users WHERE email='${targetEmail}' LIMIT 1;"`, { encoding: 'utf8' }).trim();
-    expect(targetId.length).toBeGreaterThan(0);
+      const targetRec = await prisma.user.findUnique({ where: { email: targetEmail } });
+      expect(targetRec).toBeTruthy();
+      const targetId = targetRec.id;
 
     // Disable target first
     const dis = await request(baseUrl).post(`/api/v1/users/${targetId}/disable`).set('Authorization', `Bearer ${adminToken}`).set('Accept', 'application/json');
@@ -95,5 +69,9 @@ describe('Admin enable user', () => {
     expect(get.status).toBe(200);
     const status = String(get.body.data.user.status).toLowerCase();
     expect(['active']).toContain(status);
+    await prisma.$disconnect();
+    } finally {
+      try { await prisma.$disconnect(); } catch (e) {}
+    }
   }, 30000);
 });

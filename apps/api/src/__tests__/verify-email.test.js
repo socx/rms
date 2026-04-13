@@ -3,53 +3,31 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const path = require('path');
 const dotenv = require('dotenv');
-
-// Load env like other tools/tests (look for repo root .env.dev)
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-if (!process.env.DATABASE_URL) dotenv.config({ path: path.resolve(__dirname, '..', '..', '..', '..', '.env.dev') });
+const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
+const { startServer, stopServer } = require('../test_helpers/server');
+
+// Load repo-level env for DATABASE_URL
+try {
+  const rootEnv = path.resolve(__dirname, '..', '..', '..', '..', '.env.dev');
+  if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv, override: true });
+} catch (e) {}
 
 describe('GET /auth/verify-email', () => {
   const prisma = new PrismaClient();
   let user;
   let rawToken;
-  let serverProc;
-  const baseUrl = 'http://localhost:3000';
-
-  const waitForHealth = (url, timeout = 10000) => {
-    const start = Date.now();
-    const { URL } = require('url');
-    const http = require('http');
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const u = new URL(url + '/health');
-        const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            res.resume();
-            return resolve(true);
-          }
-          res.resume();
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.on('error', () => {
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.end();
-      };
-      check();
-    });
-  };
+  let serverInfo;
+  const WORKER_ID = process.env.JEST_WORKER_ID ? parseInt(process.env.JEST_WORKER_ID, 10) : 0;
+  const EXPECTED_PORT = 3000 + WORKER_ID;
+  process.env.PORT = '0';
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  let baseUrl = `http://localhost:${EXPECTED_PORT}`;
 
   beforeAll(async () => {
-    const cp = require('child_process');
-    const indexPath = require('path').resolve(__dirname, '..', 'index.js');
-    serverProc = cp.spawn(process.execPath, [indexPath], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    serverProc.stdout.on('data', d => process.stdout.write('[api] '+d));
-    serverProc.stderr.on('data', d => process.stderr.write('[api.err] '+d));
-    await waitForHealth(baseUrl, 10000);
-  });
+    serverInfo = await startServer(EXPECTED_PORT, { timeout: 15000 });
+    baseUrl = serverInfo.baseUrl;
+  }, 20000);
 
   afterAll(async () => {
     try {
@@ -57,11 +35,9 @@ describe('GET /auth/verify-email', () => {
         await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
         await prisma.user.delete({ where: { id: user.id } });
       }
-    } catch (e) {
-      // ignore cleanup errors
-    }
+    } catch (e) {}
     await prisma.$disconnect();
-    if (serverProc) serverProc.kill();
+    await stopServer(serverInfo);
   });
 
   test('verifies email with valid token', async () => {

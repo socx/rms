@@ -1,73 +1,54 @@
 const request = require('supertest');
-const cp = require('child_process');
 const path = require('path');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
+const { PrismaClient } = require('@prisma/client');
+const { startServer, stopServer } = require('../test_helpers/server');
 
 describe('Events API', () => {
-  let baseUrl = 'http://localhost:3000';
-  let serverProc;
+  const WORKER_ID = process.env.JEST_WORKER_ID ? parseInt(process.env.JEST_WORKER_ID, 10) : 0;
+  const EXPECTED_PORT = 3000 + WORKER_ID;
+  process.env.PORT = '0';
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  let baseUrl = `http://localhost:${EXPECTED_PORT}`;
+  let serverInfo;
 
   try {
     const rootEnv = path.resolve(__dirname, '..', '..', '..', '..', '.env.dev');
     if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv, override: true });
   } catch (e) {}
 
-  const waitForHealth = (url, timeout = 10000) => {
-    const start = Date.now();
-    const { URL } = require('url');
-    const http = require('http');
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const u = new URL(url + '/health');
-        const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            res.resume();
-            return resolve(true);
-          }
-          res.resume();
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.on('error', () => {
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.end();
-      };
-      check();
-    });
-  };
-
   beforeAll(async () => {
-    const indexPath = path.resolve(__dirname, '..', 'index.js');
-    serverProc = cp.spawn(process.execPath, [indexPath], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    serverProc.stdout.on('data', d => process.stdout.write('[api] ' + d));
-    serverProc.stderr.on('data', d => process.stderr.write('[api.err] ' + d));
-    await waitForHealth(baseUrl, 15000);
+    serverInfo = await startServer(EXPECTED_PORT, { timeout: 15000 });
+    baseUrl = serverInfo.baseUrl;
   }, 20000);
 
-  afterAll(() => {
-    if (serverProc) serverProc.kill();
+  afterAll(async () => {
+    await stopServer(serverInfo);
   });
 
   test('create -> get -> patch -> delete event flow', async () => {
-    const email = `evuser+${Date.now()%100000}@example.com`;
+    const suffix = `${Date.now()%100000}-w${WORKER_ID}`;
+    const email = `evuser+${suffix}@example.com`;
     const pw = 'Password01';
 
     const r = await request(baseUrl).post('/api/v1/auth/register').send({ firstname: 'E', lastname: 'User', email, password: pw, timezone: 'UTC' }).set('Accept', 'application/json');
     expect(r.status).toBe(201);
 
     const conn = process.env.DATABASE_URL;
-    if (!conn) throw new Error('No DATABASE_URL available for psql');
 
-    // verify user so operations proceed
-    const promoteSql = `UPDATE users SET email_verified=true, email_verified_at=now() WHERE email='${email}';`;
-    cp.execSync(`psql "${conn}" -t -c "${promoteSql.replace(/"/g, '\\"')}"`, { encoding: 'utf8' });
-
-    const out = cp.execSync(`psql "${conn}" -t -c "SELECT id FROM users WHERE email='${email}' LIMIT 1;"`, { encoding: 'utf8' });
-    const userId = out.trim();
+    // Verify user via Prisma so operations proceed
+    const prisma = new PrismaClient();
+    let userId;
+    try {
+      const rec = await prisma.user.findUnique({ where: { email } });
+      expect(rec).toBeTruthy();
+      userId = rec.id;
+      await prisma.user.update({ where: { id: userId }, data: { emailVerified: true, emailVerifiedAt: new Date() } });
+    } finally {
+      await prisma.$disconnect();
+    }
     const token = jwt.sign({ sub: userId, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     // Create event

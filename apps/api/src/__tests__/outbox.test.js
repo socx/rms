@@ -1,33 +1,19 @@
 const request = require('supertest');
+const { startServer, stopServer } = require('../test_helpers/server');
 
 describe('Outbox integration', () => {
-  let serverProc;
-  const baseUrl = 'http://localhost:3000';
-  const waitForHealth = (url, timeout = 10000) => {
-    const start = Date.now();
-    const { URL } = require('url');
-    const http = require('http');
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const u = new URL(url + '/health');
-        const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
-          if (res.statusCode >= 200 && res.statusCode < 300) { res.resume(); return resolve(true); }
-          res.resume(); if (Date.now() - start < timeout) return setTimeout(check, 200); return reject(new Error('Health check timeout'));
-        });
-        req.on('error', () => { if (Date.now() - start < timeout) return setTimeout(check, 200); return reject(new Error('Health check timeout')); });
-        req.end();
-      };
-      check();
-    });
-  };
+  const WORKER_ID = process.env.JEST_WORKER_ID ? parseInt(process.env.JEST_WORKER_ID, 10) : 0;
+  const EXPECTED_PORT = 3000 + WORKER_ID;
+  let baseUrl = `http://localhost:${EXPECTED_PORT}`;
+  let serverInfo;
 
   beforeAll(async () => {
-    const cp = require('child_process');
-    const indexPath = require('path').resolve(__dirname, '..', 'index.js');
-    serverProc = cp.spawn(process.execPath, [indexPath], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    serverProc.stdout.on('data', d => process.stdout.write('[api] '+d));
-    serverProc.stderr.on('data', d => process.stderr.write('[api.err] '+d));
-    await waitForHealth(baseUrl, 10000);
+    serverInfo = await startServer(EXPECTED_PORT, { timeout: 15000 });
+    baseUrl = serverInfo.baseUrl;
+  }, 20000);
+
+  afterAll(async () => {
+    await stopServer(serverInfo);
   });
 
   test('worker consumes outbox row', async () => {
@@ -100,7 +86,7 @@ describe('Outbox integration', () => {
     await prisma.$disconnect();
   }, 20000);
 
-  afterAll(() => {
-    if (serverProc) serverProc.kill();
+  afterAll(async () => {
+    await stopServer(serverInfo);
   });
 });

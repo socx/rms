@@ -165,6 +165,8 @@ This repository includes a CI workflow at `.github/workflows/ci.yml` which runs 
 
 If you need the CI to use different DB credentials or a different DB name, update the workflow or set repository secrets accordingly.
 
+Note about a recent test flake: some Jest suites that spawn the API process could collide on the hard-coded port when run in parallel, causing intermittent "socket hang up" failures. Tests were updated to assign a per-worker port and detect the server's bound port; the temporary `--runInBand` test workaround was reverted after verification.
+
 Running tests locally
 
 To run the full test matrix locally (requires Postgres):

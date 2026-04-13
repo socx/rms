@@ -103,15 +103,25 @@ if (SSL_KEY_PATH && SSL_CERT_PATH) {
 		});
 
 		server.listen(SSL_PORT, () => {
-			console.log(`RMS API listening (https) on port ${SSL_PORT}`);
-			writeSslPortFile(SSL_PORT);
+			const addr = server.address();
+			const bound = addr && addr.port ? addr.port : SSL_PORT;
+			console.log(`RMS API listening (https) on port ${bound}`);
+			writeSslPortFile(bound);
 		});
 	} catch (err) {
 		console.info('Dev SSL files not present; starting HTTP server instead.');
-		app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
+		const httpServer = app.listen(PORT, () => {
+			const addr = httpServer.address();
+			const bound = addr && addr.port ? addr.port : PORT;
+			console.log(`RMS API listening on port ${bound}`);
+		});
 	}
 } else {
-	app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
+	const httpServer = app.listen(PORT, () => {
+		const addr = httpServer.address();
+		const bound = addr && addr.port ? addr.port : PORT;
+		console.log(`RMS API listening on port ${bound}`);
+	});
 }
 
 export default app;

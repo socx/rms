@@ -1,70 +1,41 @@
 const request = require('supertest');
-const cp = require('child_process');
 const path = require('path');
 const dotenv = require('dotenv');
 const fs = require('fs');
+const { PrismaClient } = require('@prisma/client');
+const { startServer, stopServer } = require('../test_helpers/server');
 
 // Ensure test process has DATABASE_URL from repo root .env.dev when running from apps/api
 let dbUrl = null;
 try {
-  // Resolve from this test file location up to repo root
   const rootEnv = path.resolve(__dirname, '..', '..', '..', '..', '.env.dev');
-    if (fs.existsSync(rootEnv)) {
-      dotenv.config({ path: rootEnv, override: true });
-      console.log('[test.setup] loaded env from', rootEnv);
-    }
-    // Also read DATABASE_URL directly from file for child psql usage
-    let dbUrl = null;
-    try {
-      const envRaw = fs.readFileSync(rootEnv, 'utf8');
-      const m = envRaw.match(/^DATABASE_URL=(.*)$/m);
-      if (m) dbUrl = m[1].trim();
-      console.log('[test.setup] dbUrl read?', !!dbUrl);
-    } catch (e) {}
-} catch (e) {
-  // ignore
-}
+  if (fs.existsSync(rootEnv)) {
+    dotenv.config({ path: rootEnv, override: true });
+    console.log('[test.setup] loaded env from', rootEnv);
+  }
+  try {
+    const envRaw = fs.readFileSync(rootEnv, 'utf8');
+    const m = envRaw.match(/^DATABASE_URL=(.*)$/m);
+    if (m) dbUrl = m[1].trim();
+    console.log('[test.setup] dbUrl read?', !!dbUrl);
+  } catch (e) {}
+} catch (e) {}
 
 describe('regression: register -> verify -> login', () => {
-  let serverProc;
-  const baseUrl = 'http://localhost:3000';
-
-  const waitForHealth = (url, timeout = 10000) => {
-    const start = Date.now();
-    const { URL } = require('url');
-    const http = require('http');
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const u = new URL(url + '/health');
-        const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            res.resume();
-            return resolve(true);
-          }
-          res.resume();
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.on('error', () => {
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.end();
-      };
-      check();
-    });
-  };
+  let serverInfo;
+  const WORKER_ID = process.env.JEST_WORKER_ID ? parseInt(process.env.JEST_WORKER_ID, 10) : 0;
+  const EXPECTED_PORT = 3000 + WORKER_ID;
+  process.env.PORT = '0';
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  let baseUrl = `http://localhost:${EXPECTED_PORT}`;
 
   beforeAll(async () => {
-    const indexPath = path.resolve(__dirname, '..', 'index.js');
-    serverProc = cp.spawn(process.execPath, [indexPath], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    serverProc.stdout.on('data', d => process.stdout.write('[api] ' + d));
-    serverProc.stderr.on('data', d => process.stderr.write('[api.err] ' + d));
-    await waitForHealth(baseUrl, 15000);
+    serverInfo = await startServer(EXPECTED_PORT, { timeout: 15000 });
+    baseUrl = serverInfo.baseUrl;
   }, 20000);
 
-  afterAll(() => {
-    if (serverProc) serverProc.kill();
+  afterAll(async () => {
+    await stopServer(serverInfo);
   });
 
   test('full flow: register -> verify -> login', async () => {
@@ -83,16 +54,15 @@ describe('regression: register -> verify -> login', () => {
     await new Promise(r => setTimeout(r, 500));
 
     // Query DB for the outbox body_html to extract the raw token
-    const sql = `SELECT body_html FROM email_outbox WHERE to_address = '${email}' ORDER BY created_at DESC LIMIT 1;`;
-    let out;
+    const prisma = new PrismaClient();
+    let html;
     try {
-      const conn = dbUrl || process.env.DATABASE_URL;
-      if (!conn) throw new Error('No DATABASE_URL available for psql');
-      out = cp.execSync(`psql "${conn}" -t -c "${sql.replace(/"/g, '\\"')}"`, { encoding: 'utf8' });
-    } catch (e) {
-      throw new Error('Failed to query email_outbox: ' + (e.stdout || e.message));
+      const outboxRow = await prisma.emailOutbox.findFirst({ where: { to: email }, orderBy: { createdAt: 'desc' } });
+      expect(outboxRow).not.toBeNull();
+      html = (outboxRow.bodyHtml || '').trim();
+    } finally {
+      await prisma.$disconnect();
     }
-    const html = out.trim();
     expect(html.length).toBeGreaterThan(0);
 
     const m = html.match(/verify-email\?token=([0-9a-fA-F]+)/);

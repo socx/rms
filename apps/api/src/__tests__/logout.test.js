@@ -1,43 +1,18 @@
 const request = require('supertest');
 
 describe('Auth logout', () => {
-  let baseUrl = 'http://localhost:3000';
-  let serverProc;
-
-  const waitForHealth = (url, timeout = 10000) => {
-    const start = Date.now();
-    const { URL } = require('url');
-    const http = require('http');
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const u = new URL(url + '/health');
-        const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            res.resume();
-            return resolve(true);
-          }
-          res.resume();
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.on('error', () => {
-          if (Date.now() - start < timeout) return setTimeout(check, 200);
-          return reject(new Error('Health check timeout'));
-        });
-        req.end();
-      };
-      check();
-    });
-  };
+  const WORKER_ID = process.env.JEST_WORKER_ID ? parseInt(process.env.JEST_WORKER_ID, 10) : 0;
+  const EXPECTED_PORT = 3000 + WORKER_ID;
+  process.env.PORT = '0';
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  let baseUrl = `http://localhost:${EXPECTED_PORT}`;
+  let serverInfo;
+  const { startServer, stopServer } = require('../test_helpers/server');
 
   beforeAll(async () => {
-    const cp = require('child_process');
-    const indexPath = require('path').resolve(__dirname, '..', 'index.js');
-    serverProc = cp.spawn(process.execPath, [indexPath], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    serverProc.stdout.on('data', d => process.stdout.write('[api] '+d));
-    serverProc.stderr.on('data', d => process.stderr.write('[api.err] '+d));
-    await waitForHealth(baseUrl, 10000);
-  });
+    serverInfo = await startServer(EXPECTED_PORT, { timeout: 15000 });
+    baseUrl = serverInfo.baseUrl;
+  }, 20000);
 
   test('logout with valid token succeeds', async () => {
     const unique = String(Date.now()).slice(-8);
@@ -83,7 +58,7 @@ describe('Auth logout', () => {
     expect(resp.status).toBe(401);
   });
 
-  afterAll(() => {
-    if (serverProc) serverProc.kill();
+  afterAll(async () => {
+    await stopServer(serverInfo);
   });
 });
