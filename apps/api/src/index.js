@@ -1,8 +1,14 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load .env, then fall back to .env.dev when DATABASE_URL or other critical vars are missing.
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+if (!process.env.DATABASE_URL) {
+	dotenv.config({ path: path.resolve(process.cwd(), '.env.dev') });
+}
 import express from 'express';
 import fs from 'fs';
 import https from 'https';
-import path from 'path';
 import helmet from 'helmet';
 import cors from 'cors';
 import { authRouter }        from './routes/auth.js';
