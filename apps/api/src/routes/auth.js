@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, conflict, fail, forbidden } from '../utils/response.js';
+import logger from '../utils/logger.js';
 
 export const authRouter = Router();
 
@@ -47,6 +48,27 @@ authRouter.post('/register', async (req, res, next) => {
 		const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 		await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt: expires } });
+
+		// Attempt to send verification email now (best-effort). If SENDGRID_API_KEY is not set, skip.
+		try {
+			if (process.env.SENDGRID_API_KEY) {
+				const sg = await import('@sendgrid/mail');
+				sg.default.setApiKey(process.env.SENDGRID_API_KEY);
+				const verifyUrl = `${process.env.APP_DOMAIN || ''}/api/v1/auth/verify-email?token=${rawToken}`;
+				const subject = 'Please verify your email address';
+				const html = `<p>Hi ${user.firstname},</p><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you did not create an account, you can ignore this email.</p>`;
+				await sg.default.send({
+					to: user.email,
+					from: process.env.SENDGRID_FROM_EMAIL,
+					subject,
+					html,
+				});
+			} else {
+				logger.info('[auth] SENDGRID_API_KEY not set — skipping email send');
+			}
+		} catch (e) {
+			logger.warn('[auth] verification email send failed:', e && e.message ? e.message : e);
+		}
 
 		// NOTE: We do not return the raw verification token in the API response.
 		return created(res, { message: 'Account created. Please check your email to verify your address.' });
@@ -114,7 +136,22 @@ authRouter.post('/resend-verification', async (req, res, next) => {
 		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 		await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt: expires } });
 
-		// In production we'd enqueue an email; for tests we just create the token.
+		// Attempt to send verification email immediately (best-effort).
+		try {
+			if (process.env.SENDGRID_API_KEY) {
+				const sg = await import('@sendgrid/mail');
+				sg.default.setApiKey(process.env.SENDGRID_API_KEY);
+				const verifyUrl = `${process.env.APP_DOMAIN || ''}/api/v1/auth/verify-email?token=${rawToken}`;
+				const subject = 'Please verify your email address';
+				const html = `<p>Hi ${user.firstname || ''},</p><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you did not request this, ignore.</p>`;
+				await sg.default.send({ to: user.email, from: process.env.SENDGRID_FROM_EMAIL, subject, html });
+			} else {
+				logger.info('[auth] SENDGRID_API_KEY not set — skipping email send');
+			}
+		} catch (e) {
+			logger.warn('[auth] resend verification email failed:', e && e.message ? e.message : e);
+		}
+
 		return ok(res, { message: 'Verification email sent.' });
 	} catch (e) { next(e); }
 });
