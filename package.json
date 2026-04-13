@@ -9,8 +9,8 @@
   "scripts": {
     "dev:api": "npm run dev   --workspace=apps/api",
     "dev:web": "npm run dev   --workspace=apps/web",
-    "dev:worker": "bash -lc \"cd apps/worker && . .venv_worker/bin/activate && python main.py\"",
-    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
+    "dev:worker": "bash -lc \"cd apps/worker && . .venv_worker/bin/activate && exec python main.py\"",
+    "dev": "concurrently --kill-others-on-fail \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
     "certs:generate": "node infra/scripts/generate-dev-certs.js",
     "dev:secure": "node infra/scripts/dev-with-certs.js",
     "dev:ssl-port": "node infra/wait-for-ssl-port.js",

@@ -7,3 +7,8 @@ apply-migration:
 .PHONY: apply-migrations
 apply-migrations: apply-migration
 
+.PHONY: stop
+stop:
+	./dev/stop.sh
+
+

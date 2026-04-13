@@ -64,6 +64,14 @@ python main.py
 - Make sure a valid `.env` (or `.env.dev`) with `DATABASE_URL` exists at the repo root so all services can connect to the database.
 - To run services individually, use `npm run dev:api`, `npm run dev:web`, or `npm run dev:worker`.
 
+- To stop stray or running development services started from this repo, run:
+
+```bash
+make stop    # runs ./dev/stop.sh which gracefully kills nodemon/vite/concurrently/python/node processes under the repo
+# or run the script directly:
+./dev/stop.sh
+```
+
 dev:secure notes
 
 - `npm run dev:secure` will generate development TLS certs and start all services with the API attempting to bind HTTPS.
