@@ -154,3 +154,40 @@ SMTP_FROM_EMAIL=noreply@yourdomain.com
 ```
 
 When running tests locally, you can keep `USE_SEND_GRID=1` and/or set `SKIP_SENDGRID=1` when invoking the single-run worker helper to avoid real network calls.
+
+## Continuous Integration (GitHub Actions)
+
+This repository includes a CI workflow at `.github/workflows/ci.yml` which runs on push and pull requests. It:
+- Boots PostgreSQL 16 as a service
+- Applies the SQL migrations in `infra/` to create the test schema
+- Runs the Node test suite in `apps/api`
+- Installs Python dependencies and runs `pytest` in `apps/worker`
+
+If you need the CI to use different DB credentials or a different DB name, update the workflow or set repository secrets accordingly.
+
+Running tests locally
+
+To run the full test matrix locally (requires Postgres):
+
+```bash
+# start postgres (macOS Homebrew example)
+brew services start postgresql@16
+
+# prepare DB (create database and apply migrations)
+createdb rms_db || true
+psql rms_db -f infra/rms_001_initial_schema.sql
+psql rms_db -f infra/rms_002_email_outbox.sql
+
+# Run API tests
+cd apps/api && npm ci && npm test
+
+# Run worker tests
+cd apps/worker
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+pytest -q
+```
+
+Notes:
+- Ensure `.env.dev` or `.env` exists at the repository root with a valid `DATABASE_URL` before starting services locally.
+- The CI uses a freshly created `rms_db` database and the infra SQL migrations; the same SQL files are used above for local setup.
