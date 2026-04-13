@@ -79,6 +79,12 @@ enum dispatch_status {
   SKIPPED @map("skipped")
 }
 
+enum outbox_status {
+  PENDING @map("pending")
+  SENT @map("sent")
+  FAILED @map("failed")
+}
+
 enum api_key_status {
   ACTIVE @map("active")
   REVOKED @map("revoked")
@@ -125,6 +131,7 @@ model User {
   subscriberLinks  Subscriber[]
   emailWrapper     EmailWrapperSetting?
   verificationTokens EmailVerificationToken[]
+  outbox            EmailOutbox[]
   settingUpdates   SystemSetting[]
   @@index([status])
   @@map("users")
@@ -178,6 +185,22 @@ model EmailWrapperSetting {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   @@map("email_wrapper_settings")
+}
+
+model EmailOutbox {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String?   @map("user_id") @db.Uuid
+  to          String    @map("to_address") @db.VarChar(320)
+  subject     String    @db.VarChar(255)
+  bodyHtml    String    @map("body_html")
+  status      outbox_status @default(PENDING)
+  attempts    Int       @default(0)
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([status])
+  @@map("email_outbox")
 }
 
 model Event {
