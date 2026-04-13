@@ -128,3 +128,29 @@ authRouter.post('/resend-verification', async (req, res, next) => {
 		return ok(res, { message: 'Verification email enqueued.' });
 	} catch (e) { next(e); }
 });
+
+// POST /auth/refresh
+authRouter.post('/refresh', async (req, res, next) => {
+	try {
+		const bearer = req.headers.authorization?.startsWith('Bearer ')
+			? req.headers.authorization.slice(7) : null;
+
+		if (!bearer) return fail(res, 'INVALID_PAYLOAD', 'Authorization bearer token is required.', 401);
+
+		let payload;
+		try {
+			payload = jwt.verify(bearer, process.env.JWT_SECRET);
+		} catch (e) {
+			return fail(res, 'INVALID_TOKEN', 'Invalid or expired token.', 401);
+		}
+
+		const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+		if (!user) return fail(res, 'INVALID_TOKEN', 'Invalid token.', 401);
+		if (String(user.status).toLowerCase() !== 'active') return fail(res, 'ACCOUNT_DISABLED', 'Account is not active.', 403);
+		if (!user.emailVerified) return fail(res, 'EMAIL_NOT_VERIFIED', 'Please verify your email.', 403);
+
+		const token = jwt.sign({ sub: user.id, role: user.systemRole }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+		return ok(res, { token });
+	} catch (e) { next(e); }
+});
