@@ -22,9 +22,13 @@ class EmailAdapter(ChannelAdapter):
     def send(self, dispatch: dict) -> bool:
         # dispatch to configured email backend
         use_sendgrid = os.environ.get('USE_SEND_GRID', '1')
-        if use_sendgrid.lower() in ('1', 'true', 'yes'):
+        use_sendgrid_val = use_sendgrid.lower() in ('1', 'true', 'yes')
+        logger.debug('EmailAdapter: USE_SEND_GRID=%s', use_sendgrid)
+        if use_sendgrid_val:
+            logger.info('EmailAdapter: using SendGrid for delivery')
             return _sendgrid_send(dispatch)
         else:
+            logger.info('EmailAdapter: using SMTP for delivery')
             return _smtp_send(dispatch)
 
 
@@ -68,11 +72,13 @@ def _smtp_send(dispatch: dict) -> bool:
     msg.set_content('This message requires an HTML-capable client')
     msg.add_alternative(html, subtype='html')
 
-    if use_tls:
-        server = smtplib.SMTP(host, port, timeout=30)
-        server.starttls()
+    # If port is 465 commonly expect implicit SSL (SMTPS)
+    if port == 465:
+        server = smtplib.SMTP_SSL(host, port, timeout=30)
     else:
         server = smtplib.SMTP(host, port, timeout=30)
+        if use_tls:
+            server.starttls()
 
     try:
         if user and password:

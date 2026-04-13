@@ -11,7 +11,7 @@ export async function authenticate(req, res, next) {
     if (bearer) {
       const payload = jwt.verify(bearer, process.env.JWT_SECRET);
       const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-      if (!user || user.status !== 'active') return unauthorized(res);
+      if (!user || String(user.status).toLowerCase() !== 'active') return unauthorized(res);
       if (!user.emailVerified) return res.status(403).json(err('EMAIL_NOT_VERIFIED', 'Please verify your email.'));
       req.user = user; req.apiKeyScopes = null;
       return next();
@@ -20,10 +20,10 @@ export async function authenticate(req, res, next) {
     if (apiKey) {
       const hash = crypto.createHash('sha256').update(apiKey).digest('hex');
       const key = await prisma.apiKey.findUnique({ where: { keyHash: hash }, include: { user: true, scopes: true } });
-      if (!key || key.status !== 'active') return unauthorized(res);
+      if (!key || String(key.status).toLowerCase() !== 'active') return unauthorized(res);
       if (key.expiresAt && key.expiresAt < new Date())
         return res.status(401).json(err('API_KEY_EXPIRED', 'This API key has expired.'));
-      if (!key.user || key.user.status !== 'active') return unauthorized(res);
+      if (!key.user || String(key.user.status).toLowerCase() !== 'active') return unauthorized(res);
       // Fire-and-forget last_used_at update
       prisma.apiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
       req.user = key.user;

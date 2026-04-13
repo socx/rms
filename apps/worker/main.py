@@ -14,23 +14,34 @@ import logging
 from dotenv import load_dotenv
 
 # Load environment variables from .env files.
-# Prefer a local `.env`, then `.env.dev`, then fall back to parent `.env` or `.env.example`.
+# Prefer a central repo `.env.dev` (parent), then repo `.env`, then local worker files.
+# This makes the worker pick up the root `.env.dev` when present.
 base_dir = os.path.dirname(__file__)
 candidates = [
+  os.path.join(base_dir, '..', '.env.dev'),
+  os.path.join(base_dir, '..', '.env'),
+  os.path.join(base_dir, '..', '.env.example'),
   os.path.join(base_dir, '.env'),
   os.path.join(base_dir, '.env.dev'),
   os.path.join(base_dir, '.env.local'),
-  os.path.join(base_dir, '..', '.env'),
-  os.path.join(base_dir, '..', '.env.example'),
 ]
 loaded = False
 for p in candidates:
   if os.path.exists(p):
-    load_dotenv(p)
+    # Force dotenv to override any existing environment variables so the
+    # repo-root `.env.dev` takes precedence over exported vars or local files.
+    load_dotenv(p, override=True)
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger(__name__).info('Loaded environment from %s', p)
     loaded = True
     break
 if not loaded:
-  load_dotenv()  # fallback to default search
+  # fallback to default search behavior of python-dotenv and allow overriding
+  load_dotenv(override=True)
+  logging.getLogger(__name__).info('Loaded environment from default lookup')
+
+# Log selected important envs for debugging
+logging.getLogger(__name__).info('USE_SEND_GRID=%s SENDGRID_API_KEY_SET=%s', os.environ.get('USE_SEND_GRID'), bool(os.environ.get('SENDGRID_API_KEY')))
 
 logging.basicConfig(
     level=logging.INFO,

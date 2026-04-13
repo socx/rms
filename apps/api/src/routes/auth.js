@@ -72,7 +72,8 @@ authRouter.post('/login', async (req, res, next) => {
 
 		const user = await prisma.user.findUnique({ where: { email } });
 		if (!user) return fail(res, 'INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
-		if (user.status !== 'active') return fail(res, 'ACCOUNT_DISABLED', 'Account is not active.', 403);
+		// Normalize status to handle different casing/enum representations
+		if (String(user.status).toLowerCase() !== 'active') return fail(res, 'ACCOUNT_DISABLED', 'Account is not active.', 403);
 		if (!user.emailVerified) return fail(res, 'EMAIL_NOT_VERIFIED', 'Please verify your email.', 403);
 
 		const ok = await bcrypt.compare(password, user.passwordHash);
