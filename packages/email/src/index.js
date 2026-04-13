@@ -1,8 +1,6 @@
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
-
+// Render template for verification emails.
 export function renderVerificationTemplate(user, rawToken) {
   const verifyUrl = `${process.env.APP_DOMAIN || ''}/api/v1/auth/verify-email?token=${rawToken}`;
   const subject = 'Please verify your email address';
@@ -10,12 +8,13 @@ export function renderVerificationTemplate(user, rawToken) {
   return { subject, html, verifyUrl };
 }
 
-export async function enqueueVerificationEmail(user, rawToken) {
+// DB-agnostic enqueue: callers must pass an `enqueueFn` that accepts a single
+// object matching the email_outbox columns (userId, to, subject, bodyHtml, ...)
+export async function enqueueVerificationEmail(enqueueFn, user, rawToken) {
   try {
     const { subject, html } = renderVerificationTemplate(user, rawToken);
-    await prisma.emailOutbox.create({ data: { userId: user.id, to: user.email, subject, bodyHtml: html } });
+    await enqueueFn({ userId: user.id, to: user.email, subject, bodyHtml: html });
   } catch (e) {
-    // Use console here to avoid depending on app-specific logger in the shared package
     console.warn('[packages/email] enqueue verification email failed:', e && e.message ? e.message : e);
   }
 }

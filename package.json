@@ -4,7 +4,8 @@
   "workspaces": [
     "apps/api",
     "apps/web",
-    "packages/db"
+    "packages/db",
+    "packages/email"
   ],
   "scripts": {
     "dev:api": "npm run dev   --workspace=apps/api",
