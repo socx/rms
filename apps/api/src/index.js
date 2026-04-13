@@ -95,7 +95,7 @@ if (SSL_KEY_PATH && SSL_CERT_PATH) {
 			}
 
 			// Any other error or if ephemeral bind failed: fall back to HTTP.
-			console.error('HTTPS server error, falling back to HTTP:', err);
+				console.warn('HTTPS server error, falling back to HTTP:', err);
 			if (!app.locals._httpStarted) {
 				app.locals._httpStarted = true;
 				app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
@@ -107,7 +107,7 @@ if (SSL_KEY_PATH && SSL_CERT_PATH) {
 			writeSslPortFile(SSL_PORT);
 		});
 	} catch (err) {
-		console.error('Failed to read SSL files, falling back to HTTP:', err);
+		console.info('Dev SSL files not present; starting HTTP server instead.');
 		app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
 	}
 } else {
