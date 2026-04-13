@@ -5,8 +5,11 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, conflict, fail, forbidden } from '../utils/response.js';
 import logger from '../utils/logger.js';
+import { enqueueVerificationEmail } from '../services/email.js';
 
 export const authRouter = Router();
+
+// `enqueueVerificationEmail` moved to services/email.js
 
 // POST /auth/register
 authRouter.post('/register', async (req, res, next) => {
@@ -49,15 +52,8 @@ authRouter.post('/register', async (req, res, next) => {
 		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 		await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt: expires } });
 
-		// Enqueue verification email in DB outbox for the worker to deliver.
-		try {
-			const verifyUrl = `${process.env.APP_DOMAIN || ''}/api/v1/auth/verify-email?token=${rawToken}`;
-			const subject = 'Please verify your email address';
-			const html = `<p>Hi ${user.firstname},</p><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you did not create an account, you can ignore this email.</p>`;
-			await prisma.emailOutbox.create({ data: { userId: user.id, to: user.email, subject, bodyHtml: html } });
-		} catch (e) {
-			logger.warn('[auth] enqueue verification email failed:', e && e.message ? e.message : e);
-		}
+		// Enqueue verification email via shared helper
+		await enqueueVerificationEmail(user, rawToken);
 
 		// NOTE: We do not return the raw verification token in the API response.
 		return created(res, { message: 'Account created. Please check your email to verify your address.' });
@@ -126,15 +122,8 @@ authRouter.post('/resend-verification', async (req, res, next) => {
 		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 		await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt: expires } });
 
-		// Attempt to send verification email immediately (best-effort).
-		try {
-			const verifyUrl = `${process.env.APP_DOMAIN || ''}/api/v1/auth/verify-email?token=${rawToken}`;
-			const subject = 'Please verify your email address';
-			const html = `<p>Hi ${user.firstname || ''},</p><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you did not request this, ignore.</p>`;
-			await prisma.emailOutbox.create({ data: { userId: user.id, to: user.email, subject, bodyHtml: html } });
-		} catch (e) {
-			logger.warn('[auth] enqueue resend verification email failed:', e && e.message ? e.message : e);
-		}
+		// Enqueue verification email via shared helper (best-effort)
+		await enqueueVerificationEmail(user, rawToken);
 
 		return ok(res, { message: 'Verification email enqueued.' });
 	} catch (e) { next(e); }
