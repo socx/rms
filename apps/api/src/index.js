@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import fs from 'fs';
+import https from 'https';
 import helmet from 'helmet';
 import cors from 'cors';
 import { authRouter }        from './routes/auth.js';
@@ -26,5 +28,21 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
+const SSL_KEY_PATH = process.env.SSL_KEY_PATH;
+const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
+const SSL_PORT = process.env.SSL_PORT || PORT;
+
+if (SSL_KEY_PATH && SSL_CERT_PATH) {
+	try {
+		const key = fs.readFileSync(SSL_KEY_PATH);
+		const cert = fs.readFileSync(SSL_CERT_PATH);
+		https.createServer({ key, cert }, app).listen(SSL_PORT, () => console.log(`RMS API listening (https) on port ${SSL_PORT}`));
+	} catch (err) {
+		console.error('Failed to start HTTPS server, falling back to HTTP:', err);
+		app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
+	}
+} else {
+	app.listen(PORT, () => console.log(`RMS API listening on port ${PORT}`));
+}
+
 export default app;
