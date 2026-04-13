@@ -20,19 +20,70 @@ class ChannelAdapter(ABC):
 
 class EmailAdapter(ChannelAdapter):
     def send(self, dispatch: dict) -> bool:
-        import sendgrid
-        from sendgrid.helpers.mail import Mail
-        sg = sendgrid.SendGridAPIClient(api_key=os.environ['SENDGRID_API_KEY'])
-        message = Mail(
-            from_email=(os.environ['SENDGRID_FROM_EMAIL'], os.environ.get('SENDGRID_FROM_NAME', 'RMS')),
-            to_emails=dispatch['contact_value'],
-            subject=dispatch['rendered_subject'] or 'Reminder',
-            html_content=dispatch['rendered_body'],
-        )
-        response = sg.send(message)
-        if response.status_code >= 400:
-            raise Exception(f'SendGrid error {response.status_code}')
-        return True
+        # dispatch to configured email backend
+        use_sendgrid = os.environ.get('USE_SEND_GRID', '1')
+        if use_sendgrid.lower() in ('1', 'true', 'yes'):
+            return _sendgrid_send(dispatch)
+        else:
+            return _smtp_send(dispatch)
+
+
+def _sendgrid_send(dispatch: dict) -> bool:
+    import sendgrid
+    from sendgrid.helpers.mail import Mail
+    sg = sendgrid.SendGridAPIClient(api_key=os.environ['SENDGRID_API_KEY'])
+    message = Mail(
+        from_email=(os.environ.get('SENDGRID_FROM_EMAIL'), os.environ.get('SENDGRID_FROM_NAME', 'RMS')),
+        to_emails=dispatch['contact_value'],
+        subject=dispatch.get('rendered_subject') or 'Reminder',
+        html_content=dispatch.get('rendered_body'),
+    )
+    response = sg.send(message)
+    if getattr(response, 'status_code', 200) >= 400:
+        raise Exception(f'SendGrid error {getattr(response, "status_code", "?final") }')
+    return True
+
+
+def _smtp_send(dispatch: dict) -> bool:
+    import smtplib
+    from email.message import EmailMessage
+
+    host = os.environ.get('SMTP_HOST')
+    port = int(os.environ.get('SMTP_PORT', '587'))
+    user = os.environ.get('SMTP_USER')
+    password = os.environ.get('SMTP_PASSWORD')
+    use_tls = os.environ.get('SMTP_USE_TLS', '1').lower() in ('1', 'true', 'yes')
+
+    if not host or not port:
+        raise Exception('SMTP_HOST and SMTP_PORT must be set for SMTP delivery')
+
+    msg = EmailMessage()
+    from_addr = os.environ.get('SMTP_FROM_EMAIL') or os.environ.get('SENDGRID_FROM_EMAIL')
+    from_name = os.environ.get('SMTP_FROM_NAME') or os.environ.get('SENDGRID_FROM_NAME', 'RMS')
+    if from_addr:
+        msg['From'] = f"{from_name} <{from_addr}>"
+    msg['To'] = dispatch['contact_value']
+    msg['Subject'] = dispatch.get('rendered_subject') or 'Reminder'
+    html = dispatch.get('rendered_body') or ''
+    msg.set_content('This message requires an HTML-capable client')
+    msg.add_alternative(html, subtype='html')
+
+    if use_tls:
+        server = smtplib.SMTP(host, port, timeout=30)
+        server.starttls()
+    else:
+        server = smtplib.SMTP(host, port, timeout=30)
+
+    try:
+        if user and password:
+            server.login(user, password)
+        server.send_message(msg)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
+    return True
 
 
 class SmsAdapter(ChannelAdapter):

@@ -125,3 +125,24 @@ infra/
 ## Key design decisions
 
 See `RMS_Functional_Specification_v1.1.docx` for the full specification.
+
+## Email delivery configuration
+
+The worker supports two email backends: SendGrid (default) and SMTP. Control which backend is used with the `USE_SEND_GRID` environment variable in your `.env.dev` (or `.env`) file:
+
+- `USE_SEND_GRID=1` — use SendGrid (default). Requires `SENDGRID_API_KEY` and `SENDGRID_FROM_EMAIL`.
+- `USE_SEND_GRID=0` — use SMTP. Requires `SMTP_HOST` and `SMTP_PORT`. Optional authentication: `SMTP_USER`/`SMTP_PASSWORD`. Use `SMTP_USE_TLS=1` to enable STARTTLS.
+
+Example `.env.dev` entries (already present in `.env.dev`):
+
+```
+USE_SEND_GRID=0
+SMTP_HOST=smtp.mailtrap.io
+SMTP_PORT=587
+SMTP_USER=your_user
+SMTP_PASSWORD=your_password
+SMTP_USE_TLS=1
+SMTP_FROM_EMAIL=noreply@yourdomain.com
+```
+
+When running tests locally, you can keep `USE_SEND_GRID=1` and/or set `SKIP_SENDGRID=1` when invoking the single-run worker helper to avoid real network calls.
