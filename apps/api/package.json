@@ -10,6 +10,9 @@
     "test": "jest --testPathPattern=src",
     "lint": "eslint src"
   },
+  "jest": {
+    "globalTeardown": "<rootDir>/src/jest.teardown.js"
+  },
   "dependencies": {
     "@rms/db": "*",
     "@prisma/client": "^5.0.0",
