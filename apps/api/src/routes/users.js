@@ -54,3 +54,18 @@ usersRouter.post('/:id/disable', authenticate, async (req, res, next) => {
 		return ok(res, { user });
 	} catch (e) { next(e); }
 });
+
+// POST /users/:id/enable
+usersRouter.post('/:id/enable', authenticate, async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		// Only system_admin may enable users
+		if (String(req.user.systemRole).toLowerCase() !== 'system_admin') return forbidden(res, 'system_admin role required.');
+
+		const exists = await prisma.user.findUnique({ where: { id } });
+		if (!exists) return notFound(res, 'User not found.');
+
+		const user = await prisma.user.update({ where: { id }, data: { status: 'ACTIVE' }, select: { id: true, status: true } });
+		return ok(res, { user });
+	} catch (e) { next(e); }
+});
