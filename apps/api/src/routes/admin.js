@@ -43,3 +43,31 @@ adminRouter.patch('/settings/:key', authenticate, requireAdmin, async (req, res,
 		return ok(res, { setting: updated });
 	} catch (e) { next(e); }
 });
+
+	// GET /admin/users
+	// Supports optional query: q (email or name fragment), limit, offset
+	adminRouter.get('/users', authenticate, requireAdmin, async (req, res, next) => {
+		try {
+			const q = (req.query.q || '').trim();
+			const limit = Math.min(100, Number(req.query.limit) || 100);
+			const offset = Number(req.query.offset) || 0;
+
+			const where = q ? {
+				OR: [
+					{ email: { contains: q, mode: 'insensitive' } },
+					{ firstname: { contains: q, mode: 'insensitive' } },
+					{ lastname: { contains: q, mode: 'insensitive' } },
+				]
+			} : {};
+
+			const users = await prisma.user.findMany({
+				where,
+				take: limit,
+				skip: offset,
+				orderBy: { createdAt: 'desc' },
+				select: { id: true, firstname: true, lastname: true, email: true, systemRole: true, status: true, createdAt: true }
+			});
+
+			return ok(res, { users });
+		} catch (e) { next(e); }
+	});
