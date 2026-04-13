@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/prisma.js';
 import { created, conflict, fail, forbidden } from '../utils/response.js';
 
@@ -49,5 +50,26 @@ authRouter.post('/register', async (req, res, next) => {
 
 		// NOTE: We do not return the raw verification token in the API response.
 		return created(res, { message: 'Account created. Please check your email to verify your address.' });
+	} catch (e) { next(e); }
+});
+
+// POST /auth/login
+authRouter.post('/login', async (req, res, next) => {
+	try {
+		const { email, password } = req.body || {};
+		if (!email || !password) return fail(res, 'INVALID_PAYLOAD', 'email and password are required.', 400);
+
+		const user = await prisma.user.findUnique({ where: { email } });
+		if (!user) return fail(res, 'INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
+		if (user.status !== 'active') return fail(res, 'ACCOUNT_DISABLED', 'Account is not active.', 403);
+		if (!user.emailVerified) return fail(res, 'EMAIL_NOT_VERIFIED', 'Please verify your email.', 403);
+
+		const ok = await bcrypt.compare(password, user.passwordHash);
+		if (!ok) return fail(res, 'INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
+
+		// Create JWT
+		const token = jwt.sign({ sub: user.id, role: user.systemRole }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+		return ok ? created(res, { token, user: { id: user.id, email: user.email, firstname: user.firstname, lastname: user.lastname, timezone: user.timezone } }) : fail(res, 'INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
 	} catch (e) { next(e); }
 });
