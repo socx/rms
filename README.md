@@ -1,4 +1,4 @@
-# Reminder Management System
+# Reminder Management System (RMS)
 
 A reminder-centred notification platform.
 
