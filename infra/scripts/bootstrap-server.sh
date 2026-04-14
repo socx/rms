@@ -3,12 +3,15 @@
 # RMS — One-time server bootstrap
 # Run once as root (or with sudo) on a fresh Ubuntu 22.04 / 24.04 droplet.
 #
-# Usage:
-#   sudo bash infra/scripts/bootstrap-server.sh <deploy_path> <host>
+# Usage (must run as root):
+#   bash infra/scripts/bootstrap-server.sh <deploy_path> <host> <deploy_user>
 #
 # Examples:
-#   sudo bash infra/scripts/bootstrap-server.sh /opt/rms 139.59.188.136
-#   sudo bash infra/scripts/bootstrap-server.sh /opt/rms app.example.com
+#   bash infra/scripts/bootstrap-server.sh /opt/rms 139.59.188.136 deploy
+#   bash infra/scripts/bootstrap-server.sh /opt/rms app.example.com deploy
+#
+# SSH in as root first:  ssh root@139.59.188.136
+# Then fetch and run the script, or scp it up.
 #
 # After this script completes:
 #   1. Clone the repo into <deploy_path> if not already there.
@@ -19,12 +22,20 @@
 # =============================================================================
 set -euo pipefail
 
-DEPLOY_PATH="${1:?Usage: bootstrap-server.sh <deploy_path> <host>}"
-HOST="${2:?Usage: bootstrap-server.sh <deploy_path> <host>}"
+# Must be run as root
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "ERROR: This script must be run as root. SSH in as root and try again."
+    exit 1
+fi
+
+DEPLOY_PATH="${1:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user>}"
+HOST="${2:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user>}"
+DEPLOY_USER="${3:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user>}"
 
 echo "=== RMS Server Bootstrap ==="
-echo "Deploy path : $DEPLOY_PATH"
-echo "Host/domain : $HOST"
+echo "Deploy path  : $DEPLOY_PATH"
+echo "Host/domain  : $HOST"
+echo "Deploy user  : $DEPLOY_USER"
 echo ""
 
 # ── 1. System packages ────────────────────────────────────────────────────────
@@ -185,7 +196,14 @@ SUPERVISOR
 systemctl enable supervisor
 systemctl start supervisor
 
-# ── 7. Done ───────────────────────────────────────────────────────────────────
+# ── 7. Sudoers — allow deploy user to run supervisorctl without a password ────
+echo "--- Configuring sudoers for $DEPLOY_USER ---"
+SUDOERS_FILE="/etc/sudoers.d/rms-supervisorctl"
+echo "$DEPLOY_USER ALL=(ALL) NOPASSWD: /usr/bin/supervisorctl" > "$SUDOERS_FILE"
+chmod 440 "$SUDOERS_FILE"
+echo "    $DEPLOY_USER can now run: sudo supervisorctl restart rms-worker"
+
+# ── 8. Done ───────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Bootstrap complete ==="
 echo ""
@@ -196,5 +214,5 @@ echo "  3. Install Node deps:         cd $DEPLOY_PATH && npm ci"
 echo "  4. Generate Prisma client:    npx prisma generate --schema=packages/db/prisma/schema.prisma"
 echo "  5. Create Python venv:        python3 -m venv $DEPLOY_PATH/.venv && $DEPLOY_PATH/.venv/bin/pip install -r apps/worker/requirements.txt"
 echo "  6. Start API with PM2:        pm2 start infra/pm2/ecosystem.config.cjs --env production && pm2 save && pm2 startup"
-echo "  7. Start worker:              supervisorctl reread && supervisorctl update && supervisorctl start rms-worker"
+echo "  7. Start worker:              sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl start rms-worker"
 echo ""
