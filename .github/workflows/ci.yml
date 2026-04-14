@@ -151,13 +151,14 @@ jobs:
             npx prisma generate --schema=packages/db/prisma/schema.prisma
 
             echo "--- Installing Python dependencies ---"
+            [ -d .venv ] || python3 -m venv .venv
             .venv/bin/pip install -r apps/worker/requirements.txt
 
             echo "--- Reloading API server (PM2) ---"
-            pm2 reload rms-api --update-env
+            pm2 reload rms-api --update-env || pm2 start "$DEPLOY_PATH/infra/pm2/ecosystem.config.cjs" --env production
 
             echo "--- Restarting dispatch engine (Supervisor) ---"
-            supervisorctl restart rms-worker
+            sudo supervisorctl restart rms-worker
 
             echo "--- Deployment complete ---"
 
