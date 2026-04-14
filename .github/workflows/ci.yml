@@ -41,8 +41,15 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Node dependencies
         run: npm ci
+
+      - name: Install Python dependencies (worker)
+        run: pip install -r apps/worker/requirements.txt
 
       - name: Apply database schema
         env:
