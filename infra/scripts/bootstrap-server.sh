@@ -73,6 +73,7 @@ mkdir -p /var/log/rms
 mkdir -p /var/www/rms
 mkdir -p "$DEPLOY_PATH"
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/log/rms
+chown "$DEPLOY_USER":"$DEPLOY_USER" /var/www/rms
 chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_PATH"
 
 # ── 5. Nginx config ───────────────────────────────────────────────────────────
@@ -201,7 +202,10 @@ systemctl start supervisor
 # ── 7. Sudoers — allow deploy user to run supervisorctl without a password ────
 echo "--- Configuring sudoers for $DEPLOY_USER ---"
 SUDOERS_FILE="/etc/sudoers.d/rms-supervisorctl"
-echo "$DEPLOY_USER ALL=(ALL) NOPASSWD: /usr/bin/supervisorctl" > "$SUDOERS_FILE"
+cat > "$SUDOERS_FILE" <<SUDOERS
+$DEPLOY_USER ALL=(ALL) NOPASSWD: /usr/bin/supervisorctl
+$DEPLOY_USER ALL=(ALL) NOPASSWD: /bin/chown -R * /var/www/rms
+SUDOERS
 chmod 440 "$SUDOERS_FILE"
 echo "    $DEPLOY_USER can now run: sudo supervisorctl restart rms-worker"
 

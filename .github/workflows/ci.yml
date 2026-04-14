@@ -154,6 +154,9 @@ jobs:
             [ -d .venv ] || python3 -m venv .venv
             .venv/bin/pip install -r apps/worker/requirements.txt
 
+            echo "--- Ensuring web root is writable ---"
+            sudo chown -R "$(whoami)" /var/www/rms
+
             echo "--- Reloading API server (PM2) ---"
             pm2 startOrReload "$DEPLOY_PATH/infra/pm2/ecosystem.config.cjs" --env production --update-env
 
