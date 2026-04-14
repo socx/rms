@@ -72,6 +72,8 @@ echo "--- Creating directories ---"
 mkdir -p /var/log/rms
 mkdir -p /var/www/rms
 mkdir -p "$DEPLOY_PATH"
+chown "$DEPLOY_USER":"$DEPLOY_USER" /var/log/rms
+chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_PATH"
 
 # ── 5. Nginx config ───────────────────────────────────────────────────────────
 echo "--- Configuring Nginx ---"
