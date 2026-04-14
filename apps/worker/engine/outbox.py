@@ -9,8 +9,11 @@ from . import delivery
 logger = logging.getLogger(__name__)
 
 
-def process_outbox(session, batch_size: int = 20):
-    """Send pending outbox emails in small batches using SELECT FOR UPDATE SKIP LOCKED."""
+def process_outbox(session, batch_size: int = 20) -> int:
+    """Send pending outbox emails in small batches using SELECT FOR UPDATE SKIP LOCKED.
+
+    Returns the number of rows processed in this batch.
+    """
     rows = session.execute(text("""
         SELECT id, user_id, to_address, subject, body_html, attempts
         FROM email_outbox
@@ -22,7 +25,7 @@ def process_outbox(session, batch_size: int = 20):
 
     if not rows:
         logger.debug('No pending outbox emails')
-        return
+        return 0
 
     logger.info('Found %d outbox email(s) to process', len(rows))
 
@@ -60,3 +63,5 @@ def process_outbox(session, batch_size: int = 20):
                     WHERE id = :id
                 """), {'a': attempts, 'id': outbox_id})
             session.commit()
+
+    return len(rows)

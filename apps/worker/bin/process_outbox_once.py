@@ -49,7 +49,19 @@ def main():
         delivery.EmailAdapter = DummyEmailAdapter
 
     with SessionLocal() as session:
-        outbox.process_outbox(session, batch_size=50)
+        # Drain ALL pending rows, not just one fixed batch.  This avoids a race
+        # condition in tests where other parallel workers have already filled the
+        # queue with rows that were created earlier (and would therefore be
+        # processed first by a single fixed-size batch), causing the row under
+        # test to be skipped.
+        total = 0
+        while True:
+            processed = outbox.process_outbox(session, batch_size=100)
+            total += processed
+            if processed == 0:
+                break
+        if total:
+            logging.info('Drained %d outbox row(s) in total', total)
 
 
 if __name__ == '__main__':
