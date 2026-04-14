@@ -158,7 +158,9 @@ jobs:
             pm2 startOrReload "$DEPLOY_PATH/infra/pm2/ecosystem.config.cjs" --env production --update-env
 
             echo "--- Restarting dispatch engine (Supervisor) ---"
-            sudo supervisorctl restart rms-worker
+            sudo supervisorctl reread
+            sudo supervisorctl update
+            sudo supervisorctl restart rms-worker || sudo supervisorctl start rms-worker
 
             echo "--- Deployment complete ---"
 
