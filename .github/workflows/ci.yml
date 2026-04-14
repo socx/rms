@@ -50,6 +50,7 @@ jobs:
         run: |
           psql -h localhost -U postgres -d rms_db -f infra/rms_001_initial_schema.sql
           psql -h localhost -U postgres -d rms_db -f infra/rms_002_email_outbox.sql
+          psql -h localhost -U postgres -d rms_db -c "UPDATE system_settings SET value = 'true' WHERE key = 'allow_public_registration';"
 
       - name: Generate Prisma client
         run: npx prisma generate --schema=packages/db/prisma/schema.prisma
