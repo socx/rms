@@ -1,0 +1,165 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── API integration tests (Node / Jest) ────────────────────────────────────
+  # Runs on every push to main and every PR targeting main.
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rms_db
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rms_db
+      JWT_SECRET: ci-test-secret-not-for-production
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply database schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d rms_db -f infra/rms_001_initial_schema.sql
+          psql -h localhost -U postgres -d rms_db -f infra/rms_002_email_outbox.sql
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema=packages/db/prisma/schema.prisma
+
+      - name: Run API tests
+        run: npm test --workspace=apps/api
+
+  # ── Python worker unit tests ──────────────────────────────────────────────
+  worker-tests:
+    name: Worker tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/worker/requirements.txt pytest
+
+      - name: Run worker tests
+        working-directory: apps/worker
+        run: pytest -q tests/
+
+  # ── React web build ───────────────────────────────────────────────────────
+  # Build on every event so PRs catch build failures.
+  # The dist artifact is consumed by the deploy job (push to main only).
+  build-web:
+    name: Build web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build:web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist/
+
+  # ── Deploy to DigitalOcean droplet ────────────────────────────────────────
+  # Only runs when code is merged/pushed to main — never on PRs.
+  # All three test/build jobs must pass first.
+  deploy:
+    name: Deploy
+    needs: [api-tests, worker-tests, build-web]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev-lab-01
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Download the React build produced by build-web above
+      - uses: actions/download-artifact@v4
+        with: { name: web-dist, path: apps/web/dist }
+
+      # SSH in: pull code, reinstall deps, regenerate Prisma client,
+      # reload the API (PM2) and restart the dispatch engine (Supervisor).
+      - name: Deploy API and worker
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        with:
+          host:     ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key:      ${{ secrets.DROPLET_SSH_KEY }}
+          envs:     DEPLOY_PATH
+          script: |
+            set -e
+            cd "$DEPLOY_PATH"
+
+            echo "--- Pulling latest code ---"
+            git pull origin main
+
+            echo "--- Installing Node dependencies ---"
+            npm ci
+
+            echo "--- Regenerating Prisma client ---"
+            npx prisma generate --schema=packages/db/prisma/schema.prisma
+
+            echo "--- Installing Python dependencies ---"
+            .venv/bin/pip install -r apps/worker/requirements.txt
+
+            echo "--- Reloading API server (PM2) ---"
+            pm2 reload rms-api --update-env
+
+            echo "--- Restarting dispatch engine (Supervisor) ---"
+            supervisorctl restart rms-worker
+
+            echo "--- Deployment complete ---"
+
+      # Copy the React SPA dist to the nginx static root
+      - name: Copy web build to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:             ${{ secrets.DROPLET_HOST }}
+          username:         ${{ secrets.DROPLET_USER }}
+          key:              ${{ secrets.DROPLET_SSH_KEY }}
+          source:           apps/web/dist/*
+          target:           /var/www/rms
+          strip_components: 3
