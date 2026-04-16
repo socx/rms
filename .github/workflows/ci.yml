@@ -34,14 +34,14 @@ jobs:
       NODE_ENV: test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.3.0
         with:
           node-version: '20'
           cache: 'npm'
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6.2.0
         with:
           python-version: '3.12'
 
@@ -71,9 +71,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6.2.0
         with:
           python-version: '3.12'
 
@@ -94,9 +94,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.3.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -104,7 +104,7 @@ jobs:
       - run: npm ci
       - run: npm run build:web
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: web-dist
           path: apps/web/dist/
@@ -120,16 +120,16 @@ jobs:
     environment: dev-lab-01
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       # Download the React build produced by build-web above
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.1
         with: { name: web-dist, path: apps/web/dist }
 
       # SSH in: pull code, reinstall deps, regenerate Prisma client,
       # reload the API (PM2) and restart the dispatch engine (Supervisor).
       - name: Deploy API and worker
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         with:
@@ -169,7 +169,7 @@ jobs:
 
       # Copy the React SPA dist to the nginx static root
       - name: Copy web build to droplet
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host:             ${{ secrets.DROPLET_HOST }}
           username:         ${{ secrets.DROPLET_USER }}
