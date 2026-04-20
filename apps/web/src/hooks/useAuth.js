@@ -1,6 +1,13 @@
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 
+export function useRegister() {
+  return useMutation({
+    mutationFn: ({ firstname, lastname, email, password }) =>
+      api.post('/auth/register', { firstname, lastname, email, password }).then(r => r.data.data),
+  });
+}
+
 export function useLogin() {
   return useMutation({
     mutationFn: ({ email, password }) =>

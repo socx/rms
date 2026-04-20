@@ -2,7 +2,7 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useLogin } from '../hooks/useAuth.js';
 
 const schema = z.object({
@@ -150,6 +150,13 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
+
+      <p className="mt-6 text-center text-sm text-gray-500">
+        Don&apos;t have an account?{' '}
+        <Link to="/register" className="font-semibold text-indigo-600 hover:text-indigo-500">
+          Create one
+        </Link>
+      </p>
     </div>
   );
 }
