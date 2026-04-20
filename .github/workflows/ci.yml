@@ -104,7 +104,10 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
-      - run: npm run build:web
+      - name: Build web
+        run: npm run build:web
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
 
       - uses: actions/upload-artifact@v7.0.1
         with:

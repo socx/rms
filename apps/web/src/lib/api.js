@@ -1,6 +1,11 @@
 import axios from 'axios';
 
-export const api = axios.create({ baseURL: '/api/v1', withCredentials: true });
+// VITE_API_URL must be set to the full API origin in production builds
+// (e.g. https://api.example.com/api/v1). Local dev leaves it unset and
+// relies on the Vite proxy configured in vite.config.js.
+const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
+
+export const api = axios.create({ baseURL: BASE_URL, withCredentials: true });
 
 // Attach JWT from localStorage if present
 api.interceptors.request.use(config => {
