@@ -18,8 +18,8 @@ from dotenv import load_dotenv
 # This makes the worker pick up the root `.env.dev` when present.
 base_dir = os.path.dirname(__file__)
 candidates = [
-  os.path.join(base_dir, '..', '.env.dev'),
   os.path.join(base_dir, '..', '.env'),
+  os.path.join(base_dir, '..', '.env.dev'),
   os.path.join(base_dir, '..', '.env.example'),
   os.path.join(base_dir, '.env'),
   os.path.join(base_dir, '.env.dev'),
