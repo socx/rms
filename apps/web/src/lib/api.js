@@ -9,11 +9,12 @@ api.interceptors.request.use(config => {
   return config;
 });
 
-// Handle 401 globally — redirect to login
+// Handle 401 globally — redirect to login (but not for the login endpoint itself)
 api.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401) {
+    const isLoginEndpoint = err.config?.url?.includes('/auth/login');
+    if (err.response?.status === 401 && !isLoginEndpoint) {
       localStorage.removeItem('rms_token');
       window.location.href = '/login';
     }
