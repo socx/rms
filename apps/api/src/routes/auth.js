@@ -163,13 +163,22 @@ authRouter.post('/logout', async (req, res, next) => {
 
 		if (!bearer) return fail(res, 'INVALID_PAYLOAD', 'Authorization bearer token is required.', 401);
 
+		let payload;
 		try {
-			jwt.verify(bearer, process.env.JWT_SECRET);
+			payload = jwt.verify(bearer, process.env.JWT_SECRET);
 		} catch (e) {
 			return fail(res, 'INVALID_TOKEN', 'Invalid or expired token.', 401);
 		}
 
-		// Stateless JWT: we don't store session state here. Client should discard token.
+		// Add the token to the denylist; ignore if already revoked (idempotent)
+		const tokenHash = crypto.createHash('sha256').update(bearer).digest('hex');
+		const expiresAt = new Date(payload.exp * 1000);
+		await prisma.revokedToken.upsert({
+			where: { tokenHash },
+			create: { tokenHash, expiresAt },
+			update: {},
+		});
+
 		return ok(res, { message: 'Logged out.' });
 	} catch (e) { next(e); }
 });

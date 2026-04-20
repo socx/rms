@@ -48,19 +48,21 @@ describe('Login -> Get User -> Logout -> Get User flow', () => {
       .set('Accept', 'application/json');
     expect(g.status).toBe(200);
 
-    // Logout
+    // Logout — token is added to denylist server-side
     const logout = await request(baseUrl)
       .post('/api/v1/auth/logout')
       .set('Authorization', `Bearer ${token}`)
       .set('Accept', 'application/json');
-    expect([200,401]).toContain(logout.status);
+    expect(logout.status).toBe(200);
+    expect(logout.body.success).toBe(true);
 
-    // GET user again: Accept either 200 (stateless logout) or 401 (revoked token)
+    // GET user again: revoked token must be rejected with 401
     const g2 = await request(baseUrl)
       .get(`/api/v1/users/${userId}`)
       .set('Authorization', `Bearer ${token}`)
       .set('Accept', 'application/json');
-    expect([200,401]).toContain(g2.status);
+    expect(g2.status).toBe(401);
+    expect(g2.body.error.code).toBe('TOKEN_REVOKED');
   }, 20000);
 
   afterAll(async () => {

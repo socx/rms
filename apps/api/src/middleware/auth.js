@@ -10,6 +10,9 @@ export async function authenticate(req, res, next) {
 
     if (bearer) {
       const payload = jwt.verify(bearer, process.env.JWT_SECRET);
+      const tokenHash = crypto.createHash('sha256').update(bearer).digest('hex');
+      const revoked = await prisma.revokedToken.findUnique({ where: { tokenHash } });
+      if (revoked) return res.status(401).json(err('TOKEN_REVOKED', 'This token has been revoked.'));
       const user = await prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user || String(user.status).toLowerCase() !== 'active') return unauthorized(res);
       if (!user.emailVerified) return res.status(403).json(err('EMAIL_NOT_VERIFIED', 'Please verify your email.'));
