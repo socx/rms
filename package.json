@@ -19,6 +19,7 @@
     "db:migrate": "npm run migrate --workspace=packages/db",
     "db:apply:migration": "make apply-migration",
     "db:generate": "npm run generate --workspace=packages/db",
+    "postinstall": "prisma generate --schema=packages/db/prisma/schema.prisma",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
   },
