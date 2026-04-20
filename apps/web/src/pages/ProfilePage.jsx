@@ -174,6 +174,14 @@ export default function ProfilePage() {
             Manage API keys →
           </Link>
         </div>
+        <div className="mb-4">
+          <Link
+            to="/email-branding"
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+          >
+            Email branding →
+          </Link>
+        </div>
 
         {/* Loading skeleton */}
         {profile.isLoading && (
