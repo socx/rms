@@ -137,12 +137,11 @@ jobs:
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH:      ${{ secrets.DEPLOY_PATH }}
-          APP_DOMAIN_HOST:  ${{ secrets.APP_DOMAIN_HOST }}
         with:
           host:     ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key:      ${{ secrets.DROPLET_SSH_KEY }}
-          envs:     DEPLOY_PATH,APP_DOMAIN_HOST
+          envs:     DEPLOY_PATH
           script: |
             set -e
             cd "$DEPLOY_PATH"
@@ -159,16 +158,6 @@ jobs:
             echo "--- Installing Python dependencies ---"
             [ -d .venv ] || python3 -m venv .venv
             .venv/bin/pip install -r apps/worker/requirements.txt
-
-            echo "--- Ensuring web root is writable ---"
-            sudo chown -R "$(whoami)" /var/www/rms
-
-            echo "--- Applying nginx config ---"
-            sed "s/__APP_DOMAIN_HOST__/$APP_DOMAIN_HOST/g" \
-              "$DEPLOY_PATH/infra/nginx/rms.conf" \
-              | sudo tee /etc/nginx/sites-available/rms > /dev/null
-            sudo ln -sf /etc/nginx/sites-available/rms /etc/nginx/sites-enabled/rms
-            sudo nginx -t && sudo nginx -s reload
 
             echo "--- Reloading API server (PM2) ---"
             pm2 startOrReload "$DEPLOY_PATH/infra/pm2/ecosystem.config.cjs" --env production --update-env
