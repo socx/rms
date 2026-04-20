@@ -24,7 +24,7 @@ import { apiKeysRouter }     from './routes/apiKeys.js';
 import { eventsRouter }      from './routes/events.js';
 import { remindersRouter }   from './routes/reminders.js';
 import { subscribersRouter } from './routes/subscribers.js';
-import { adminRouter }       from './routes/admin.js';
+import { adminRouter }        from './routes/admin.js';
 import { rateLimiter }       from './middleware/rateLimiter.js';
 import { errorHandler }      from './middleware/errorHandler.js';
 
