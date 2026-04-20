@@ -308,6 +308,7 @@ CREATE TABLE reminder_dispatches (
     status                  dispatch_status NOT NULL DEFAULT 'pending',
     attempts                SMALLINT        NOT NULL DEFAULT 0,
     last_attempted_at       TIMESTAMPTZ,
+    retry_after             TIMESTAMPTZ,
     sent_at                 TIMESTAMPTZ,
     failure_reason          TEXT,
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -320,8 +321,7 @@ CREATE INDEX rd_reminder_occ_idx    ON reminder_dispatches (reminder_id, occurre
 CREATE INDEX rd_subscriber_idx      ON reminder_dispatches (subscriber_id);
 
 -- HOT PATH: retry worker query — find failed records needing retry
-CREATE INDEX rd_retry_idx           ON reminder_dispatches (status, attempts, last_attempted_at)
-    WHERE status = 'failed';
+CREATE INDEX rd_retry_idx           ON reminder_dispatches (status, retry_after);
 
 -- All-dispatches-resolved check for report trigger
 CREATE INDEX rd_pending_idx         ON reminder_dispatches (reminder_id, occurrence_number, status)
