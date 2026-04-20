@@ -58,7 +58,7 @@ usersRouter.get('/:id', authenticate, async (req, res, next) => {
 		if (req.user.id !== id && String(req.user.systemRole).toLowerCase() !== 'system_admin')
 			return forbidden(res, 'Insufficient permissions.');
 
-		const user = await prisma.user.findUnique({ where: { id }, select: { id: true, firstname: true, lastname: true, email: true, timezone: true, createdAt: true, emailVerified: true, systemRole: true, status: true } });
+		const user = await prisma.user.findUnique({ where: { id }, select: { id: true, firstname: true, lastname: true, email: true, phone: true, timezone: true, createdAt: true, emailVerified: true, systemRole: true, status: true } });
 		if (!user) return notFound(res, 'User not found.');
 		return ok(res, { user });
 	} catch (e) { next(e); }
@@ -71,16 +71,49 @@ usersRouter.patch('/:id', authenticate, async (req, res, next) => {
 		if (req.user.id !== id && String(req.user.systemRole).toLowerCase() !== 'system_admin')
 			return forbidden(res, 'Insufficient permissions.');
 
-		const { firstname, lastname, timezone } = req.body || {};
+		const { firstname, lastname, timezone, phone, email } = req.body || {};
 		const data = {};
-		if (typeof firstname === 'string') data.firstname = firstname;
-		if (typeof lastname === 'string') data.lastname = lastname;
+		if (typeof firstname === 'string') data.firstname = firstname.trim();
+		if (typeof lastname === 'string') data.lastname = lastname.trim();
 		if (typeof timezone === 'string') data.timezone = timezone;
+		if (typeof phone === 'string') data.phone = phone.trim() || null;
+		if (typeof email === 'string') {
+			const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+			if (!emailRe.test(email)) return fail(res, 'INVALID_EMAIL', 'Email address is not valid.', 400);
+			const existing = await prisma.user.findFirst({ where: { email, NOT: { id } } });
+			if (existing) return conflict(res, 'EMAIL_EXISTS', 'That email address is already in use.');
+			data.email = email;
+		}
 
 		if (Object.keys(data).length === 0) return fail(res, 'INVALID_PAYLOAD', 'No allowed fields to update provided.', 400);
 
-		const user = await prisma.user.update({ where: { id }, data, select: { id: true, firstname: true, lastname: true, email: true, timezone: true, updatedAt: true } });
+		const user = await prisma.user.update({ where: { id }, data, select: { id: true, firstname: true, lastname: true, email: true, phone: true, timezone: true, updatedAt: true } });
 		return ok(res, { user });
+	} catch (e) { next(e); }
+});
+
+// POST /users/:id/change-password
+usersRouter.post('/:id/change-password', authenticate, async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		if (req.user.id !== id)
+			return forbidden(res, 'You can only change your own password.');
+
+		const { currentPassword, newPassword } = req.body || {};
+		if (!currentPassword || !newPassword)
+			return fail(res, 'INVALID_PAYLOAD', 'currentPassword and newPassword are required.', 400);
+		if (newPassword.length < 8)
+			return fail(res, 'WEAK_PASSWORD', 'New password must be at least 8 characters.', 400);
+
+		const user = await prisma.user.findUnique({ where: { id } });
+		if (!user) return notFound(res, 'User not found.');
+
+		const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+		if (!valid) return fail(res, 'INCORRECT_PASSWORD', 'Current password is incorrect.', 400);
+
+		const passwordHash = await bcrypt.hash(newPassword, 12);
+		await prisma.user.update({ where: { id }, data: { passwordHash } });
+		return ok(res, { message: 'Password changed successfully.' });
 	} catch (e) { next(e); }
 });
 

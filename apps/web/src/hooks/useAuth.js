@@ -44,3 +44,14 @@ export function useLogout() {
 export function getStoredToken() {
   return localStorage.getItem('rms_token');
 }
+
+export function getStoredUserId() {
+  const token = localStorage.getItem('rms_token');
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
