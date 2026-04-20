@@ -7,9 +7,28 @@ import logging
 from abc import ABC, abstractmethod
 from sqlalchemy import text
 
+from .db import get_setting
+
 logger = logging.getLogger(__name__)
 
-RETRY_MAX = 3
+DEFAULT_BACKOFF_MINUTES = [1, 5, 15]   # fallback if setting is absent / unparseable
+
+
+def get_backoff_minutes(session) -> list[int]:
+    """
+    Read dispatch_retry_backoff_minutes from system_settings.
+    Expected format: comma-separated integers, e.g. '1,5,15'.
+    Returns a list of int minute offsets; falls back to DEFAULT_BACKOFF_MINUTES on any error.
+    """
+    raw = get_setting(session, 'dispatch_retry_backoff_minutes', '')
+    if raw:
+        try:
+            parsed = [int(x.strip()) for x in raw.split(',') if x.strip()]
+            if parsed:
+                return parsed
+        except ValueError:
+            pass
+    return list(DEFAULT_BACKOFF_MINUTES)
 
 
 class ChannelAdapter(ABC):
@@ -109,7 +128,11 @@ class SmsAdapter(ChannelAdapter):
 ADAPTERS = {'email': EmailAdapter(), 'sms': SmsAdapter()}
 
 
-def deliver_dispatch(session, dispatch_id: str):
+def deliver_dispatch(session, dispatch_id: str, backoff_minutes: list[int] | None = None):
+    if backoff_minutes is None:
+        backoff_minutes = get_backoff_minutes(session)
+    retry_max = len(backoff_minutes)
+
     dispatch = session.execute(
         text("""
             SELECT rd.*, sc.contact_value
@@ -132,26 +155,62 @@ def deliver_dispatch(session, dispatch_id: str):
         adapter.send(dict(dispatch))
         session.execute(text("""
             UPDATE reminder_dispatches
-            SET status = 'sent', attempts = :a, sent_at = NOW(), last_attempted_at = NOW()
+            SET status = 'sent', attempts = :a, sent_at = NOW(), last_attempted_at = NOW(),
+                retry_after = NULL
             WHERE id = :id
         """), {'a': attempts, 'id': dispatch_id})
         session.commit()
         logger.info('Dispatch %s sent via %s', dispatch_id, dispatch['channel'])
     except Exception as e:
         failure_reason = str(e)[:500]
-        if attempts >= RETRY_MAX:
+        if attempts >= retry_max:
             session.execute(text("""
                 UPDATE reminder_dispatches
-                SET status = 'failed', attempts = :a, failure_reason = :r, last_attempted_at = NOW()
+                SET status = 'failed', attempts = :a, failure_reason = :r,
+                    last_attempted_at = NOW(), retry_after = NULL
                 WHERE id = :id
             """), {'a': attempts, 'r': failure_reason, 'id': dispatch_id})
             session.commit()
-            logger.warning('Dispatch %s permanently failed after %d attempts: %s', dispatch_id, attempts, failure_reason)
+            logger.warning('Dispatch %s permanently failed after %d attempts: %s',
+                           dispatch_id, attempts, failure_reason)
         else:
+            delay = backoff_minutes[attempts - 1]   # e.g. attempt=1 → backoff_minutes[0]
             session.execute(text("""
                 UPDATE reminder_dispatches
-                SET attempts = :a, last_attempted_at = NOW()
+                SET attempts = :a, failure_reason = :r, last_attempted_at = NOW(),
+                    retry_after = NOW() + INTERVAL '1 minute' * :delay
                 WHERE id = :id
-            """), {'a': attempts, 'id': dispatch_id})
+            """), {'a': attempts, 'r': failure_reason, 'delay': delay, 'id': dispatch_id})
             session.commit()
-            logger.warning('Dispatch %s failed (attempt %d/%d): %s', dispatch_id, attempts, RETRY_MAX, failure_reason)
+            logger.warning('Dispatch %s failed (attempt %d/%d), retry in %dm: %s',
+                           dispatch_id, attempts, retry_max, delay, failure_reason)
+
+
+def retry_pending_dispatches(session):
+    """
+    Re-attempt all pending dispatches whose retry_after has elapsed.
+    Called every poll cycle so retries are honoured as soon as the window passes.
+    """
+    backoff_minutes = get_backoff_minutes(session)
+
+    rows = session.execute(text("""
+        SELECT rd.id
+        FROM reminder_dispatches rd
+        WHERE rd.status = 'pending'
+          AND rd.attempts > 0
+          AND rd.retry_after IS NOT NULL
+          AND rd.retry_after <= NOW()
+        FOR UPDATE SKIP LOCKED
+    """)).fetchall()
+
+    if not rows:
+        return
+
+    ids = [str(r[0]) for r in rows]
+    logger.info('retry_pending_dispatches: %d dispatch(es) ready for retry', len(ids))
+
+    for did in ids:
+        try:
+            deliver_dispatch(session, did, backoff_minutes=backoff_minutes)
+        except Exception:
+            logger.exception('Error retrying dispatch %s', did)

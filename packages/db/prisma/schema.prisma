@@ -310,6 +310,7 @@ model ReminderDispatch {
   status              dispatch_status @default(PENDING)
   attempts            Int            @default(0) @db.SmallInt
   lastAttemptedAt     DateTime?      @map("last_attempted_at")
+  retryAfter          DateTime?      @map("retry_after")
   sentAt              DateTime?      @map("sent_at")
   failureReason       String?        @map("failure_reason")
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -318,7 +319,7 @@ model ReminderDispatch {
   subscriberContact   SubscriberContact @relation(fields: [subscriberContactId], references: [id])
   @@index([reminderId, occurrenceNumber])
   @@index([subscriberId])
-  @@index([status, attempts, lastAttemptedAt])
+  @@index([status, retryAfter])
   @@map("reminder_dispatches")
 }
 

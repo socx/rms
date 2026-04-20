@@ -9,6 +9,7 @@ import logging
 from .db import SessionLocal, get_setting
 from .poller import poll_and_dispatch
 from .outbox import process_outbox
+from .delivery import retry_pending_dispatches
 from .maintenance import run_nightly_jobs, NightlySchedule
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,11 @@ def run_scheduler():
                 lookahead = int(get_setting(session, 'dispatch_lookahead_seconds', '65'))
                 # Dispatch reminders
                 poll_and_dispatch(session, lookahead_seconds=lookahead)
+                # Retry any pending dispatches whose backoff window has elapsed
+                try:
+                    retry_pending_dispatches(session)
+                except Exception:
+                    logger.exception('Error retrying pending dispatches')
                 # Process any queued emails in the outbox
                 try:
                     process_outbox(session)
