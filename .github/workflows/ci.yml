@@ -137,14 +137,20 @@ jobs:
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH:      ${{ secrets.DEPLOY_PATH }}
+          APP_DOMAIN_HOST:  ${{ secrets.APP_DOMAIN_HOST }}
+          SUDO_PASSWORD:    ${{ secrets.DROPLET_SUDO_PASSWORD }}
         with:
           host:     ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key:      ${{ secrets.DROPLET_SSH_KEY }}
-          envs:     DEPLOY_PATH
+          envs:     DEPLOY_PATH,APP_DOMAIN_HOST,SUDO_PASSWORD
           script: |
             set -e
             cd "$DEPLOY_PATH"
+
+            sudo_cmd() {
+              printf '%s\n' "$SUDO_PASSWORD" | sudo -S "$@"
+            }
 
             echo "--- Pulling latest code ---"
             git pull origin main
@@ -159,13 +165,21 @@ jobs:
             [ -d .venv ] || python3 -m venv .venv
             .venv/bin/pip install -r apps/worker/requirements.txt
 
+            echo "--- Applying nginx config ---"
+            sed "s/__APP_DOMAIN_HOST__/$APP_DOMAIN_HOST/g" \
+              "$DEPLOY_PATH/infra/nginx/rms.conf" > /tmp/rms.nginx.conf
+            sudo_cmd install -m 644 /tmp/rms.nginx.conf /etc/nginx/sites-available/rms
+            sudo_cmd ln -sf /etc/nginx/sites-available/rms /etc/nginx/sites-enabled/rms
+            sudo_cmd nginx -t
+            sudo_cmd systemctl reload nginx
+
             echo "--- Reloading API server (PM2) ---"
             pm2 startOrReload "$DEPLOY_PATH/infra/pm2/ecosystem.config.cjs" --env production --update-env
 
             echo "--- Restarting dispatch engine (Supervisor) ---"
-            sudo supervisorctl reread
-            sudo supervisorctl update
-            sudo supervisorctl restart rms-worker || sudo supervisorctl start rms-worker
+            sudo_cmd supervisorctl reread
+            sudo_cmd supervisorctl update
+            sudo_cmd supervisorctl restart rms-worker || sudo_cmd supervisorctl start rms-worker
 
             echo "--- Deployment complete ---"
 
