@@ -9,6 +9,7 @@ import logging
 from .db import SessionLocal, get_setting
 from .poller import poll_and_dispatch
 from .outbox import process_outbox
+from .maintenance import run_nightly_jobs, NightlySchedule
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ MAX_INTERVAL = 3600         # seconds — upper safety bound
 def run_scheduler():
     """Infinite loop: poll, dispatch, sleep, repeat."""
     last_interval = FALLBACK_INTERVAL
+    nightly = NightlySchedule()
 
     while True:
         interval = last_interval  # default to last known good value
@@ -36,6 +38,14 @@ def run_scheduler():
                     process_outbox(session)
                 except Exception:
                     logger.exception('Error processing email outbox')
+
+                # Nightly maintenance (archive events + expire API keys)
+                if nightly.should_run():
+                    try:
+                        run_nightly_jobs(session)
+                        nightly.mark_ran()
+                    except Exception:
+                        logger.exception('Error running nightly maintenance jobs')
 
         except Exception as e:
             logger.exception('Error in scheduler loop: %s', e)
