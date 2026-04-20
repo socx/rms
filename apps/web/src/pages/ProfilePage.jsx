@@ -166,6 +166,14 @@ export default function ProfilePage() {
             ← Back to events
           </Link>
         </div>
+        <div className="mb-4">
+          <Link
+            to="/api-keys"
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+          >
+            Manage API keys →
+          </Link>
+        </div>
 
         {/* Loading skeleton */}
         {profile.isLoading && (

@@ -5,6 +5,7 @@ import RegisterPage from './pages/RegisterPage.jsx';
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx';
 import ResendVerificationPage from './pages/ResendVerificationPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
+import ApiKeysPage from './pages/ApiKeysPage.jsx';
 
 function EventsPlaceholder() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
       <Route path="/resend-verification" element={<ResendVerificationPage />} />
       <Route path="/events" element={<EventsPlaceholder />} />
       <Route path="/profile" element={<ProfilePage />} />
+      <Route path="/api-keys" element={<ApiKeysPage />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
