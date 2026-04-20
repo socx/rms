@@ -1,6 +1,20 @@
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 
+export function useVerifyEmail() {
+  return useMutation({
+    mutationFn: (token) =>
+      api.get(`/auth/verify-email?token=${encodeURIComponent(token)}`).then(r => r.data.data),
+  });
+}
+
+export function useResendVerification() {
+  return useMutation({
+    mutationFn: ({ email }) =>
+      api.post('/auth/resend-verification', { email }).then(r => r.data.data),
+  });
+}
+
 export function useRegister() {
   return useMutation({
     mutationFn: ({ firstname, lastname, email, password }) =>

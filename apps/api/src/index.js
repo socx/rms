@@ -1,10 +1,17 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Load .env, then fall back to .env.dev when DATABASE_URL or other critical vars are missing.
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+// Resolve env files relative to this file's location so the correct repo-root
+// .env is loaded regardless of what process.cwd() is (e.g. when started via
+// `npm run dev --workspace=apps/api`, cwd is apps/api, not the repo root).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '..', '..', '..');
+
+// Load .env first, then fall back to .env.dev when DATABASE_URL is missing.
+dotenv.config({ path: path.join(repoRoot, '.env') });
 if (!process.env.DATABASE_URL) {
-	dotenv.config({ path: path.resolve(process.cwd(), '.env.dev') });
+	dotenv.config({ path: path.join(repoRoot, '.env.dev') });
 }
 import express from 'express';
 import fs from 'fs';

@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 // Render template for verification emails.
 export function renderVerificationTemplate(user, rawToken) {
-  const verifyUrl = `${process.env.APP_DOMAIN || ''}/api/v1/auth/verify-email?token=${rawToken}`;
+  const verifyUrl = `${process.env.WEB_URL || 'http://localhost:5173'}/verify-email?token=${rawToken}`;
   const subject = 'Please verify your email address';
   const html = `<p>Hi ${user.firstname || ''},</p><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you did not create an account, you can ignore this email.</p>`;
   return { subject, html, verifyUrl };

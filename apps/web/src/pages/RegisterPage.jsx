@@ -87,7 +87,8 @@ export default function RegisterPage() {
               aria-live="polite"
               className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800 ring-1 ring-green-200 mb-6"
             >
-              Account created! Check your inbox to verify your email address.
+              Account created! Check your inbox to verify your email address. It may take a few minutes to arrive.
+              Please, be sure to check your spam folder if you don&apos;t see it.
             </div>
             <p className="text-sm text-gray-600">
               Already verified?{' '}
