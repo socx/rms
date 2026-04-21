@@ -18,9 +18,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: rms_db
+          POSTGRES_USER:     ${{ secrets.CI_DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+          POSTGRES_DB:       ${{ secrets.CI_DB_NAME }}
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
@@ -29,8 +29,8 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rms_db
-      JWT_SECRET: ci-test-secret-not-for-production
+      DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+      JWT_SECRET:   ${{ secrets.CI_JWT_SECRET }}
       NODE_ENV: test
 
     steps:
@@ -53,13 +53,15 @@ jobs:
 
       - name: Apply database schema
         env:
-          PGPASSWORD: postgres
+          PGPASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+          CI_DB_USER: ${{ secrets.CI_DB_USER }}
+          CI_DB_NAME: ${{ secrets.CI_DB_NAME }}
         run: |
-          psql -h localhost -U postgres -d rms_db -f infra/rms_001_initial_schema.sql
-          psql -h localhost -U postgres -d rms_db -f infra/rms_002_email_outbox.sql
-          psql -h localhost -U postgres -d rms_db -f infra/rms_003_revoked_tokens.sql
-          psql -h localhost -U postgres -d rms_db -f infra/rms_004_dispatch_retry_after.sql
-          psql -h localhost -U postgres -d rms_db -c "UPDATE system_settings SET value = 'true' WHERE key = 'allow_public_registration';"
+          psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_001_initial_schema.sql
+          psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_002_email_outbox.sql
+          psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_003_revoked_tokens.sql
+          psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_004_dispatch_retry_after.sql
+          psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -c "UPDATE system_settings SET value = 'true' WHERE key = 'allow_public_registration';"
 
       - name: Generate Prisma client
         run: npx prisma generate --schema=packages/db/prisma/schema.prisma
@@ -136,15 +138,20 @@ jobs:
       - name: Deploy API and worker
         uses: appleboy/ssh-action@v1.2.5
         env:
-          DEPLOY_PATH:      ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          ENV_FILE:    ${{ secrets.ENV_FILE }}
         with:
           host:     ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key:      ${{ secrets.DROPLET_SSH_KEY }}
-          envs:     DEPLOY_PATH
+          envs:     DEPLOY_PATH,ENV_FILE
           script: |
             set -e
             cd "$DEPLOY_PATH"
+
+            echo "--- Writing .env ---"
+            printf '%s' "$ENV_FILE" > "$DEPLOY_PATH/.env"
+            chmod 600 "$DEPLOY_PATH/.env"
 
             echo "--- Pulling latest code ---"
             git pull origin main
@@ -154,6 +161,25 @@ jobs:
 
             echo "--- Regenerating Prisma client ---"
             npx prisma generate --schema=packages/db/prisma/schema.prisma
+
+            echo "--- Applying database migrations ---"
+            DB_URL=$(grep '^DATABASE_URL=' "$DEPLOY_PATH/.env" | cut -d= -f2-)
+
+            # rms_001 is not idempotent (plain CREATE TYPE/TABLE/INDEX/TRIGGER).
+            # Only run it on a completely empty database to avoid errors on re-deploy.
+            SCHEMA_EXISTS=$(psql "$DB_URL" -tAc "SELECT to_regclass('public.users')" 2>/dev/null || echo "")
+            if [ -z "$SCHEMA_EXISTS" ]; then
+                echo "    Fresh database — applying initial schema (rms_001)..."
+                psql "$DB_URL" -v ON_ERROR_STOP=1 -f infra/rms_001_initial_schema.sql
+            else
+                echo "    Schema already exists — skipping rms_001."
+            fi
+
+            # rms_002-004 are idempotent (IF NOT EXISTS / IF EXISTS guards) — always safe to re-run.
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -f infra/rms_002_email_outbox.sql
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -f infra/rms_003_revoked_tokens.sql
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -f infra/rms_004_dispatch_retry_after.sql
+            psql "$DB_URL" -c "UPDATE system_settings SET value='true' WHERE key='allow_public_registration';"
 
             echo "--- Installing Python dependencies ---"
             [ -d .venv ] || python3 -m venv .venv
