@@ -27,11 +27,13 @@ import { subscribersRouter } from './routes/subscribers.js';
 import { adminRouter }        from './routes/admin.js';
 import { rateLimiter }       from './middleware/rateLimiter.js';
 import { errorHandler }      from './middleware/errorHandler.js';
+import { requestLogger }     from './middleware/requestLogger.js';
 
 const app = express();
 app.use(helmet());
 app.use(cors({ origin: process.env.APP_DOMAIN, credentials: true }));
 app.use(express.json());
+app.use(requestLogger);
 app.use('/api/v1', rateLimiter);
 app.use('/api/v1/auth',   authRouter);
 app.use('/api/v1/users',  usersRouter);
