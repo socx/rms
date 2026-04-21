@@ -4,10 +4,11 @@
 # Run once as root (or with sudo) on a fresh Ubuntu 22.04 / 24.04 droplet.
 #
 # Usage (must run as root):
-#   bash infra/scripts/bootstrap-server.sh <deploy_path> <host> <deploy_user>
+#   bash infra/scripts/bootstrap-server.sh <deploy_path> <host> <deploy_user> [database_url]
 #
 # Examples:
 #   bash infra/scripts/bootstrap-server.sh /opt/rms 139.59.188.136 deploy
+#   bash infra/scripts/bootstrap-server.sh /opt/rms 139.59.188.136 deploy 'postgresql://rms_db_user:secret@localhost:5432/rms_db'
 #   bash infra/scripts/bootstrap-server.sh /opt/rms app.example.com deploy
 #
 # SSH in as root first:  ssh root@139.59.188.136
@@ -15,10 +16,11 @@
 #
 # After this script completes:
 #   1. Clone the repo into <deploy_path> if not already there.
-#   2. Copy your .env file to <deploy_path>/.env
+#   2. Copy your .env file to <deploy_path>/.env  (NODE_ENV=production)
 #   3. Run: cd <deploy_path> && npm ci && npx prisma generate --schema=packages/db/prisma/schema.prisma
-#   4. Start the API:  pm2 start infra/pm2/ecosystem.config.cjs --env production && pm2 save && pm2 startup
-#   5. Start worker:   supervisorctl reread && supervisorctl update && supervisorctl start rms-worker
+#   4. Apply DB migrations: psql "$DATABASE_URL" -f infra/rms_001_initial_schema.sql (etc.)
+#   5. Start the API:  pm2 start infra/pm2/ecosystem.config.cjs --env production && pm2 save && pm2 startup
+#   6. Start worker:   supervisorctl reread && supervisorctl update && supervisorctl start rms-worker
 # =============================================================================
 set -euo pipefail
 
@@ -28,9 +30,10 @@ if [[ "$(id -u)" -ne 0 ]]; then
     exit 1
 fi
 
-DEPLOY_PATH="${1:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user>}"
-HOST="${2:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user>}"
-DEPLOY_USER="${3:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user>}"
+DEPLOY_PATH="${1:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user> [database_url]}"
+HOST="${2:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user> [database_url]}"
+DEPLOY_USER="${3:?Usage: bootstrap-server.sh <deploy_path> <host> <deploy_user> [database_url]}"
+DB_URL="${4:-}"
 
 echo "=== RMS Server Bootstrap ==="
 echo "Deploy path  : $DEPLOY_PATH"
@@ -47,8 +50,37 @@ apt-get install -y -qq \
     curl wget gnupg ca-certificates \
     nginx supervisor \
     python3 python3-venv python3-pip \
-    postgresql-client \
+    postgresql postgresql-client \
     git
+
+# ── 1b. PostgreSQL — ensure service running, create database and user ─────────
+echo "--- Ensuring PostgreSQL is running ---"
+systemctl enable postgresql
+systemctl start postgresql
+
+if [[ -n "$DB_URL" ]]; then
+    echo "--- Creating PostgreSQL database and user from DATABASE_URL ---"
+    DB_USER=$(python3 -c "import sys,urllib.parse; u=urllib.parse.urlparse(sys.argv[1]); print(u.username)" "$DB_URL")
+    DB_PASS=$(python3 -c "import sys,urllib.parse; u=urllib.parse.urlparse(sys.argv[1]); print(u.password)" "$DB_URL")
+    DB_NAME=$(python3 -c "import sys,urllib.parse; u=urllib.parse.urlparse(sys.argv[1]); print(u.path.lstrip('/'))" "$DB_URL")
+
+    # Create role (idempotent)
+    sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" \
+        | grep -q 1 \
+        || sudo -u postgres psql -c "CREATE USER \"${DB_USER}\" WITH PASSWORD '${DB_PASS}';"
+
+    # Create database (idempotent)
+    sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" \
+        | grep -q 1 \
+        || sudo -u postgres psql -c "CREATE DATABASE \"${DB_NAME}\" OWNER \"${DB_USER}\";"
+
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${DB_NAME}\" TO \"${DB_USER}\";"
+    echo "    Database '$DB_NAME' and user '$DB_USER' ready."
+else
+    echo "    No DATABASE_URL supplied — skipping database/user creation."
+    echo "    Re-run with a 4th arg to create the db automatically:"
+    echo "    $0 $DEPLOY_PATH $HOST $DEPLOY_USER 'postgresql://user:pass@localhost:5432/dbname'"
+fi
 
 # ── 2. Node.js 20 via NodeSource ──────────────────────────────────────────────
 if ! command -v node &>/dev/null || [[ "$(node --version)" != v20* ]]; then
@@ -215,10 +247,16 @@ echo "=== Bootstrap complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Clone repo (if not done):  git clone git@github.com:socx/rms.git $DEPLOY_PATH"
-echo "  2. Copy .env file:            cp /path/to/.env $DEPLOY_PATH/.env"
+echo "  2. Copy .env file:            cp /path/to/.env $DEPLOY_PATH/.env   (set NODE_ENV=production)"
 echo "  3. Install Node deps:         cd $DEPLOY_PATH && npm ci"
 echo "  4. Generate Prisma client:    npx prisma generate --schema=packages/db/prisma/schema.prisma"
-echo "  5. Create Python venv:        python3 -m venv $DEPLOY_PATH/.venv && $DEPLOY_PATH/.venv/bin/pip install -r apps/worker/requirements.txt"
-echo "  6. Start API with PM2:        pm2 start infra/pm2/ecosystem.config.cjs --env production && pm2 save && pm2 startup"
-echo "  7. Start worker:              sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl start rms-worker"
+echo "  5. Apply DB migrations:       DB_URL=\$(grep '^DATABASE_URL=' $DEPLOY_PATH/.env | cut -d= -f2-)"
+echo "                                psql \"\$DB_URL\" -f $DEPLOY_PATH/infra/rms_001_initial_schema.sql"
+echo "                                psql \"\$DB_URL\" -f $DEPLOY_PATH/infra/rms_002_email_outbox.sql"
+echo "                                psql \"\$DB_URL\" -f $DEPLOY_PATH/infra/rms_003_revoked_tokens.sql"
+echo "                                psql \"\$DB_URL\" -f $DEPLOY_PATH/infra/rms_004_dispatch_retry_after.sql"
+echo "                                psql \"\$DB_URL\" -c \"UPDATE system_settings SET value='true' WHERE key='allow_public_registration';\""
+echo "  6. Create Python venv:        python3 -m venv $DEPLOY_PATH/.venv && $DEPLOY_PATH/.venv/bin/pip install -r apps/worker/requirements.txt"
+echo "  7. Start API with PM2:        pm2 start infra/pm2/ecosystem.config.cjs --env production && pm2 save && pm2 startup"
+echo "  8. Start worker:              sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl start rms-worker"
 echo ""
