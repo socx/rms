@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { getStoredUserId } from '../hooks/useAuth.js';
 import { useGetEvent, useUpdateEvent } from '../hooks/useEvents.js';
+import RemindersTab from './RemindersTab.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,7 @@ export default function EventDetailPage() {
   const [description, setDesc]      = useState('');
   const [formError,   setFormError] = useState(null);
   const [saveOk,      setSaveOk]    = useState(false);
+  const [activeTab,   setActiveTab] = useState('details');
 
   // Populate form once event is loaded
   useEffect(() => {
@@ -138,6 +140,9 @@ export default function EventDetailPage() {
 
   const isOwner   = event.ownerId === userId;
   const canEdit   = isOwner && event.status === 'ACTIVE';
+  // OWNER and CONTRIBUTOR can create/edit reminders; READER and unauthenticated visitors cannot
+  const eventRole = isOwner ? 'OWNER' : (event.myRole ?? null); // API may supply myRole for non-owners
+  const canWrite  = event.status === 'ACTIVE' && (isOwner || eventRole === 'CONTRIBUTOR');
   const roleLabel = isOwner ? 'Owner' : 'Shared';
 
   // ── Save handler ──────────────────────────────────────────────────────────
@@ -196,11 +201,38 @@ export default function EventDetailPage() {
           </div>
         </div>
 
-        <div className="rounded-xl bg-white shadow p-6">
-          <h1 className="text-xl font-bold tracking-tight text-gray-900 mb-6">
-            Event details
-          </h1>
+        <div className="rounded-xl bg-white shadow">
+          {/* Tab bar */}
+          <div className="border-b border-gray-200 px-6 pt-6">
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 mb-4">
+              Event details
+            </h1>
+            <nav className="-mb-px flex gap-6" aria-label="Event tabs">
+              {[
+                { key: 'details',   label: 'Details' },
+                { key: 'reminders', label: 'Reminders' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.key
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
 
+          <div className="p-6">
+            {/* ── Details tab ──────────────────────────────────────────── */}
+            <div hidden={activeTab !== 'details'}>
           {saveOk && (
             <div
               role="status"
@@ -311,6 +343,18 @@ export default function EventDetailPage() {
               <ReadField label="Description" value={event.description} />
             </dl>
           )}
+            </div>{/* end details tab */}
+
+            {/* ── Reminders tab ──────────────────────────────────────── */}
+            <div hidden={activeTab !== 'reminders'}>
+              <RemindersTab
+                eventId={id}
+                isOwner={isOwner}
+                canWrite={canWrite}
+                eventTimezone={event.eventTimezone ?? 'UTC'}
+              />
+            </div>
+          </div>{/* end p-6 */}
         </div>
       </div>
     </div>
