@@ -150,10 +150,9 @@ jobs:
             cd "$DEPLOY_PATH"
 
             echo "--- Writing .env ---"
-            # Write to a temp file first, then atomically replace .env.
-            # This works even if a previous root-owned .env exists, because
-            # the deploy user owns the directory and mv only needs dir write permission.
-            printf '%s' "$ENV_FILE" > "$DEPLOY_PATH/.env.tmp"
+            # ENV_FILE secret is base64-encoded to survive multi-line transport over SSH.
+            # Encode locally: cat .env | base64 -w 0   (then paste the result as the secret)
+            echo "$ENV_FILE" | base64 -d > "$DEPLOY_PATH/.env.tmp"
             chmod 600 "$DEPLOY_PATH/.env.tmp"
             mv -f "$DEPLOY_PATH/.env.tmp" "$DEPLOY_PATH/.env"
 
