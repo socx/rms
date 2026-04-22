@@ -8,6 +8,7 @@ import ProfilePage from './pages/ProfilePage.jsx';
 import ApiKeysPage from './pages/ApiKeysPage.jsx';
 import EmailBrandingPage from './pages/EmailBrandingPage.jsx';
 import EventsPage from './pages/EventsPage.jsx';
+import EventDetailPage from './pages/EventDetailPage.jsx';
 import ApiStatusBadge from './components/ApiStatusBadge.jsx';
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/resend-verification" element={<ResendVerificationPage />} />
         <Route path="/events" element={<EventsPage />} />
+        <Route path="/events/:id" element={<EventDetailPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/api-keys" element={<ApiKeysPage />} />
         <Route path="/email-branding" element={<EmailBrandingPage />} />

@@ -496,7 +496,12 @@ export default function EventsPage() {
                   return (
                     <tr key={ev.id} className="hover:bg-gray-50 transition-colors">
                       <td className="py-4 pl-6 pr-3">
-                        <span className="text-sm font-medium text-gray-900">{ev.subject}</span>
+                        <Link
+                          to={`/events/${ev.id}`}
+                          className="text-sm font-medium text-gray-900 hover:text-indigo-600"
+                        >
+                          {ev.subject}
+                        </Link>
                         {ev.location && (
                           <p className="text-xs text-gray-500 mt-0.5">{ev.location}</p>
                         )}
