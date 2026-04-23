@@ -44,30 +44,120 @@ adminRouter.patch('/settings/:key', authenticate, requireAdmin, async (req, res,
 	} catch (e) { next(e); }
 });
 
-	// GET /admin/users
-	// Supports optional query: q (email or name fragment), limit, offset
-	adminRouter.get('/users', authenticate, requireAdmin, async (req, res, next) => {
-		try {
-			const q = (req.query.q || '').trim();
-			const limit = Math.min(100, Number(req.query.limit) || 100);
-			const offset = Number(req.query.offset) || 0;
+// GET /admin/users
+// Supports optional query: q (email or name fragment), limit, offset
+adminRouter.get('/users', authenticate, requireAdmin, async (req, res, next) => {
+	try {
+		const q = (req.query.q || '').trim();
+		const limit = Math.min(100, Number(req.query.limit) || 100);
+		const offset = Number(req.query.offset) || 0;
 
-			const where = q ? {
-				OR: [
-					{ email: { contains: q, mode: 'insensitive' } },
-					{ firstname: { contains: q, mode: 'insensitive' } },
-					{ lastname: { contains: q, mode: 'insensitive' } },
-				]
-			} : {};
+		const where = q ? {
+			OR: [
+				{ email: { contains: q, mode: 'insensitive' } },
+				{ firstname: { contains: q, mode: 'insensitive' } },
+				{ lastname: { contains: q, mode: 'insensitive' } },
+			]
+		} : {};
 
-			const users = await prisma.user.findMany({
+		const users = await prisma.user.findMany({
+			where,
+			take: limit,
+			skip: offset,
+			orderBy: { createdAt: 'desc' },
+			select: { id: true, firstname: true, lastname: true, email: true, systemRole: true, status: true, createdAt: true }
+		});
+
+		return ok(res, { users });
+	} catch (e) { next(e); }
+});
+
+// GET /admin/users/:id
+adminRouter.get('/users/:id', authenticate, requireAdmin, async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		const user = await prisma.user.findUnique({
+			where: { id },
+			select: { id: true, firstname: true, lastname: true, email: true, phone: true, timezone: true, systemRole: true, status: true, emailVerified: true, createdAt: true }
+		});
+		if (!user) return notFound(res, 'User not found.');
+		return ok(res, { user });
+	} catch (e) { next(e); }
+});
+
+// PATCH /admin/users/:id
+adminRouter.patch('/users/:id', authenticate, requireAdmin, async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		if (id === req.user.id)
+			return fail(res, 'SELF_MODIFY', 'Cannot modify your own account via admin endpoint.', 400);
+
+		const existing = await prisma.user.findUnique({ where: { id } });
+		if (!existing) return notFound(res, 'User not found.');
+
+		const { status, systemRole } = req.body || {};
+		const data = {};
+
+		if (status !== undefined) {
+			const s = String(status).toUpperCase();
+			if (!['ACTIVE', 'DISABLED'].includes(s))
+				return fail(res, 'INVALID_STATUS', 'status must be one of: ACTIVE, DISABLED.', 400);
+			data.status = s;
+		}
+
+		if (systemRole !== undefined) {
+			const r = String(systemRole).toUpperCase();
+			if (!['USER', 'SYSTEM_ADMIN'].includes(r))
+				return fail(res, 'INVALID_ROLE', 'systemRole must be one of: USER, SYSTEM_ADMIN.', 400);
+			data.systemRole = r;
+		}
+
+		if (Object.keys(data).length === 0)
+			return fail(res, 'INVALID_PAYLOAD', 'status or systemRole is required.', 400);
+
+		const user = await prisma.user.update({
+			where: { id },
+			data,
+			select: { id: true, firstname: true, lastname: true, email: true, phone: true, timezone: true, systemRole: true, status: true, emailVerified: true, createdAt: true }
+		});
+
+		return ok(res, { user });
+	} catch (e) { next(e); }
+});
+
+// GET /admin/events — paginated cross-user event list
+adminRouter.get('/events', authenticate, requireAdmin, async (req, res, next) => {
+	try {
+		const page    = Math.max(1, Number(req.query.page) || 1);
+		const perPage = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
+		const q       = (req.query.q || '').trim();
+
+		const where = q ? {
+			OR: [
+				{ subject: { contains: q, mode: 'insensitive' } },
+				{ owner: { email: { contains: q, mode: 'insensitive' } } },
+			]
+		} : {};
+
+		const [events, total] = await Promise.all([
+			prisma.event.findMany({
 				where,
-				take: limit,
-				skip: offset,
+				take: perPage,
+				skip: (page - 1) * perPage,
 				orderBy: { createdAt: 'desc' },
-				select: { id: true, firstname: true, lastname: true, email: true, systemRole: true, status: true, createdAt: true }
-			});
+				select: {
+					id: true,
+					subject: true,
+					status: true,
+					eventDatetime: true,
+					location: true,
+					createdAt: true,
+					owner: { select: { id: true, firstname: true, lastname: true, email: true } }
+				}
+			}),
+			prisma.event.count({ where })
+		]);
 
-			return ok(res, { users });
-		} catch (e) { next(e); }
-	});
+		return ok(res, { events }, { page, per_page: perPage, total });
+	} catch (e) { next(e); }
+});

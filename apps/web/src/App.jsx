@@ -9,6 +9,7 @@ import ApiKeysPage from './pages/ApiKeysPage.jsx';
 import EmailBrandingPage from './pages/EmailBrandingPage.jsx';
 import EventsPage from './pages/EventsPage.jsx';
 import EventDetailPage from './pages/EventDetailPage.jsx';
+import AdminPage from './pages/AdminPage.jsx';
 import ApiStatusBadge from './components/ApiStatusBadge.jsx';
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/api-keys" element={<ApiKeysPage />} />
         <Route path="/email-branding" element={<EmailBrandingPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </>
