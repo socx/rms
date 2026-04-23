@@ -127,7 +127,6 @@ function RichBodyEditor({ value, onChange, onEditorReady }) {
   return (
     <div
       className="rounded-md overflow-hidden outline outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-indigo-600"
-      aria-label="Body template rich text editor"
     >
       {/* Formatting toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-1.5 py-1">
