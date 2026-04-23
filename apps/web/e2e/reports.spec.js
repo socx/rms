@@ -93,9 +93,9 @@ async function setup(page, options = {}) {
     return route.fallback();
   });
 
-  // GET /events/:id/reminders/:rid/report
+  // GET /events/:id/reminders/:rid/report  (** suffix matches ?page=n&per_page=n query params)
   const pag = reportsPagination ?? { page: 1, per_page: 20, total: reports.length };
-  await page.route(`**/api/v1/events/${EVENT_ID}/reminders/${REMINDER_ID}/report`, async (route) => {
+  await page.route(`**/api/v1/events/${EVENT_ID}/reminders/${REMINDER_ID}/report**`, async (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 200,
@@ -183,13 +183,16 @@ test.describe('Reports tab', () => {
     test('shows reminder subject template', async ({ page }) => {
       await setup(page, { reminders: [makeReminder()] });
       await openReportsTab(page);
-      await expect(page.getByText('Reminder: {{event_subject}}')).toBeVisible();
+      // Scope to the Reports region to avoid matching the same text in the hidden Reminders tab
+      const region = page.getByRole('region', { name: 'Reports' });
+      await expect(region.getByText('Reminder: {{event_subject}}')).toBeVisible();
     });
 
     test('shows reminder status badge', async ({ page }) => {
       await setup(page, { reminders: [makeReminder()] });
       await openReportsTab(page);
-      await expect(page.getByLabel('Reminder status: SENT')).toBeVisible();
+      const region = page.getByRole('region', { name: 'Reports' });
+      await expect(region.getByLabel('Reminder status: SENT')).toBeVisible();
     });
 
     test('shows occurrence count', async ({ page }) => {
@@ -212,8 +215,9 @@ test.describe('Reports tab', () => {
         ],
       });
       await openReportsTab(page);
-      await expect(page.getByText('First reminder')).toBeVisible();
-      await expect(page.getByText('Second reminder')).toBeVisible();
+      const region = page.getByRole('region', { name: 'Reports' });
+      await expect(region.getByText('First reminder')).toBeVisible();
+      await expect(region.getByText('Second reminder')).toBeVisible();
     });
   });
 
@@ -262,7 +266,7 @@ test.describe('Reports tab', () => {
       await openReportsTab(page);
       await page.getByLabel(/toggle reports/i).click();
       const table = page.getByRole('table', { name: 'Occurrence reports' });
-      await expect(table.getByRole('row').nth(1).getByText('2')).toBeVisible();
+      await expect(table.getByRole('row').nth(1).getByText('2', { exact: true })).toBeVisible();
     });
 
     test('accordion closes on second click', async ({ page }) => {
@@ -345,7 +349,8 @@ test.describe('Reports tab', () => {
       await setup(page, {
         reminders:         [makeReminder()],
         reports:           [makeReport()],
-        reportsPagination: { page: 1, per_page: 1, total: 3 },
+        // total:25 with component's hardcoded perPage:20 → Math.ceil(25/20)=2 pages
+        reportsPagination: { page: 1, per_page: 20, total: 25 },
       });
       await openReportsTab(page);
       await page.getByLabel(/toggle reports/i).click();
@@ -357,7 +362,7 @@ test.describe('Reports tab', () => {
       await setup(page, {
         reminders:         [makeReminder()],
         reports:           [makeReport()],
-        reportsPagination: { page: 1, per_page: 1, total: 3 },
+        reportsPagination: { page: 1, per_page: 20, total: 25 },
       });
       await openReportsTab(page);
       await page.getByLabel(/toggle reports/i).click();

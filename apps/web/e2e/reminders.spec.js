@@ -149,7 +149,7 @@ test.describe('Event detail page — tabs', () => {
     await setup(page);
     await page.goto(`/events/${EVENT_ID}`);
     await openRemindersTab(page);
-    await expect(page.getByLabel('Reminders')).toBeVisible();
+    await expect(page.getByLabel('Reminders', { exact: true })).toBeVisible();
   });
 
   test('switching back to Details tab shows the event form', async ({ page }) => {
@@ -211,21 +211,21 @@ test.describe('Reminders tab — list display', () => {
     await setup(page, { reminders: [makeReminder()] });
     await page.goto(`/events/${EVENT_ID}`);
     await openRemindersTab(page);
-    await expect(page.getByText('Reminder: {{event_subject}}')).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Reminders list' }).getByText('Reminder: {{event_subject}}')).toBeVisible();
   });
 
   test('shows reminder status badge (SCHEDULED)', async ({ page }) => {
     await setup(page, { reminders: [makeReminder()] });
     await page.goto(`/events/${EVENT_ID}`);
     await openRemindersTab(page);
-    await expect(page.getByLabel(/reminder status: scheduled/i)).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Reminders list' }).getByLabel(/reminder status: scheduled/i)).toBeVisible();
   });
 
   test('shows reminder status badge (SENT)', async ({ page }) => {
     await setup(page, { reminders: [makeReminder({ status: 'SENT' })] });
     await page.goto(`/events/${EVENT_ID}`);
     await openRemindersTab(page);
-    await expect(page.getByLabel(/reminder status: sent/i)).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Reminders list' }).getByLabel(/reminder status: sent/i)).toBeVisible();
   });
 
   test('shows recurrence badge for non-NEVER recurrence', async ({ page }) => {
