@@ -6,6 +6,7 @@ import { prisma } from '../utils/prisma.js';
 import { ok, created, conflict, fail, forbidden } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import { enqueueVerificationEmail } from '../services/email.js';
+import { resendVerificationLimiter } from '../middleware/rateLimiter.js';
 
 export const authRouter = Router();
 
@@ -105,8 +106,8 @@ authRouter.get('/verify-email', async (req, res, next) => {
 	} catch (e) { next(e); }
 });
 
-// POST /auth/resend-verification
-authRouter.post('/resend-verification', async (req, res, next) => {
+// POST /auth/resend-verification  (rate limited: 3 per email per hour)
+authRouter.post('/resend-verification', resendVerificationLimiter, async (req, res, next) => {
 	try {
 		const { email } = req.body || {};
 		if (!email) return fail(res, 'INVALID_PAYLOAD', 'email is required.', 400);
