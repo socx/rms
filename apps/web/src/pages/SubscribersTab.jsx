@@ -251,6 +251,9 @@ function SubscriberFormModal({ eventId, subscriber = null, onClose }) {
                 Timezone <span className="text-xs text-gray-400">(optional)</span>
               </label>
               <input id="sub-timezone" type="text" value={timezone} onChange={e => setTimezone(e.target.value)} placeholder="e.g. Europe/London" className={inputClass} />
+              <p className="mt-1 text-xs text-gray-500">
+                If left blank, the event owner&apos;s timezone is used as a fallback. If that is also unset, UTC applies.
+              </p>
             </div>
 
             {!isEdit && (
