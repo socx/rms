@@ -281,11 +281,13 @@ export default function EventsPage() {
     if (!userId) navigate('/login', { replace: true });
   }, [userId, navigate]);
 
-  const [search, setSearch]           = useState('');
-  const [debouncedQ, setDebouncedQ]   = useState('');
-  const [roleFilter, setRoleFilter]   = useState('All');
+  const [search, setSearch]             = useState('');
+  const [debouncedQ, setDebouncedQ]     = useState('');
+  const [roleFilter, setRoleFilter]     = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
-  const [showCreate, setShowCreate]   = useState(false);
+  const [dateFrom, setDateFrom]         = useState('');
+  const [dateTo, setDateTo]             = useState('');
+  const [showCreate, setShowCreate]     = useState(false);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [createOk, setCreateOk]       = useState(false);
   const [cancelOk, setCancelOk]       = useState(false);
@@ -299,7 +301,7 @@ export default function EventsPage() {
     debounceRef.current = setTimeout(() => setDebouncedQ(v), 350);
   }
 
-  const events = useListEvents({ q: debouncedQ });
+  const events = useListEvents({ q: debouncedQ, date_from: dateFrom, date_to: dateTo });
   const create = useCreateEvent();
   const cancel = useCancelEvent();
 
@@ -316,6 +318,8 @@ export default function EventsPage() {
 
     return true;
   });
+
+  const hasDateFilter = !!(dateFrom || dateTo);
 
   // Whether any non-ACTIVE statuses appear in the data (admin sees all)
   const hasNonActive = (events.data ?? []).some(ev => ev.status !== 'ACTIVE');
@@ -436,6 +440,38 @@ export default function EventsPage() {
               ))}
             </div>
           )}
+
+          {/* Date range filter */}
+          <div className="flex items-center gap-2 flex-wrap" aria-label="Filter by date range">
+            <span className="text-xs text-gray-500 font-medium">From</span>
+            <input
+              type="date"
+              aria-label="Filter from date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={e => setDateFrom(e.target.value)}
+              className="rounded-md border-0 py-1.5 px-2 text-xs text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 bg-white"
+            />
+            <span className="text-xs text-gray-500 font-medium">To</span>
+            <input
+              type="date"
+              aria-label="Filter to date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={e => setDateTo(e.target.value)}
+              className="rounded-md border-0 py-1.5 px-2 text-xs text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 bg-white"
+            />
+            {hasDateFilter && (
+              <button
+                type="button"
+                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                aria-label="Clear date range filter"
+                className="text-xs text-indigo-600 hover:text-indigo-500 font-medium"
+              >
+                Clear dates
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Table */}
@@ -542,7 +578,7 @@ export default function EventsPage() {
         {!events.isLoading && filtered.length > 0 && (
           <p className="mt-3 text-xs text-gray-500">
             {filtered.length} event{filtered.length !== 1 ? 's' : ''}
-            {roleFilter !== 'All' || statusFilter !== 'All' ? ' (filtered)' : ''}
+            {(roleFilter !== 'All' || statusFilter !== 'All' || hasDateFilter) ? ' (filtered)' : ''}
           </p>
         )}
       </div>

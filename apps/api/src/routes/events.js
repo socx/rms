@@ -31,15 +31,22 @@ eventsRouter.post('/', authenticate, async (req, res, next) => {
 // GET /events - list events (admin-only sees all; normal users see owned or accessible)
 eventsRouter.get('/', authenticate, async (req, res, next) => {
 	try {
-		const q = (req.query.q || '').trim();
-		const limit = Math.min(100, Number(req.query.limit) || 50);
-		const offset = Number(req.query.offset) || 0;
+		const q        = (req.query.q || '').trim();
+		const limit    = Math.min(100, Number(req.query.limit) || 50);
+		const offset   = Number(req.query.offset) || 0;
+		const dateFrom = req.query.date_from ? new Date(req.query.date_from) : null;
+		const dateTo   = req.query.date_to   ? new Date(req.query.date_to)   : null;
 
 		const where = {};
 		if (q) where.OR = [
 			{ subject: { contains: q, mode: 'insensitive' } },
 			{ description: { contains: q, mode: 'insensitive' } },
 		];
+		if ((dateFrom && !isNaN(dateFrom)) || (dateTo && !isNaN(dateTo))) {
+			where.eventDatetime = {};
+			if (dateFrom && !isNaN(dateFrom)) where.eventDatetime.gte = dateFrom;
+			if (dateTo   && !isNaN(dateTo))   where.eventDatetime.lte = dateTo;
+		}
 
 		// Non-admin: restrict to events owned by user or where user has access
 		if (String(req.user.systemRole).toLowerCase() !== 'system_admin') {

@@ -3,12 +3,16 @@ import { api } from '../lib/api.js';
 
 const listKey = (params) => ['events', params];
 
-export function useListEvents({ q = '', limit = 50, offset = 0 } = {}) {
+export function useListEvents({ q = '', limit = 50, offset = 0, date_from = '', date_to = '' } = {}) {
   return useQuery({
-    queryKey: listKey({ q, limit, offset }),
-    queryFn: () =>
-      api.get('/events', { params: { ...(q ? { q } : {}), limit, offset } })
-        .then(r => r.data.data.events),
+    queryKey: listKey({ q, limit, offset, date_from, date_to }),
+    queryFn: () => {
+      const params = { limit, offset };
+      if (q)         params.q         = q;
+      if (date_from) params.date_from = date_from;
+      if (date_to)   params.date_to   = date_to;
+      return api.get('/events', { params }).then(r => r.data.data.events);
+    },
   });
 }
 
