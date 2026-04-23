@@ -5,6 +5,7 @@ import { useGetProfile } from '../hooks/useProfile.js';
 import {
   useAdminUsers,
   useAdminUpdateUser,
+  useAdminDeleteUser,
   useAdminSettings,
   useAdminUpdateSetting,
   useAdminEvents,
@@ -45,18 +46,70 @@ function StatusBadge({ label, styleMap, value }) {
 
 function UsersTab() {
   const currentUserId = getStoredUserId();
-  const [query, setQuery]   = useState('');
-  const [search, setSearch] = useState('');
+  const [query, setQuery]           = useState('');
+  const [search, setSearch]         = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
+  const [deleteError,  setDeleteError]  = useState(null);
   const users      = useAdminUsers({ q: search });
   const updateUser = useAdminUpdateUser();
+  const deleteUser = useAdminDeleteUser();
 
   function handleSearch(e) {
     e.preventDefault();
     setSearch(query);
   }
 
+  async function handleDeleteConfirm() {
+    setDeleteError(null);
+    try {
+      await deleteUser.mutateAsync(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err?.response?.data?.error?.message ?? err?.message ?? 'Delete failed.');
+    }
+  }
+
   return (
     <section aria-label="Users">
+      {/* Delete confirm dialog */}
+      {deleteTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-user-heading"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+        >
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h2 id="delete-user-heading" className="text-base font-semibold text-gray-900">
+              Delete user?
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              <strong>{deleteTarget.name}</strong> will be soft-deleted. This cannot be undone.
+            </p>
+            {deleteError && (
+              <p role="alert" className="mt-2 text-sm text-red-600">{deleteError}</p>
+            )}
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+                className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-white ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteConfirm}
+                disabled={deleteUser.isPending}
+                aria-label={`Confirm delete ${deleteTarget.name}`}
+                className="rounded-md px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 disabled:opacity-60"
+              >
+                {deleteUser.isPending ? 'Deleting…' : 'Delete user'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <form onSubmit={handleSearch} className="flex gap-2 mb-4">
         <input
           type="search"
@@ -125,6 +178,15 @@ function UsersTab() {
                             >
                               {u.systemRole === 'SYSTEM_ADMIN' ? 'Demote' : 'Promote'}
                             </button>
+                            {u.status !== 'DELETED' && (
+                              <button
+                                aria-label={`Delete ${u.firstname} ${u.lastname}`}
+                                onClick={() => { setDeleteError(null); setDeleteTarget({ id: u.id, name: `${u.firstname} ${u.lastname}` }); }}
+                                className="rounded px-2 py-1 text-xs font-medium bg-red-50 hover:bg-red-100 text-red-700"
+                              >
+                                Delete
+                              </button>
+                            )}
                           </>
                         )}
                       </td>

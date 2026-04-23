@@ -28,6 +28,14 @@ export function useAdminUpdateUser() {
   });
 }
 
+export function useAdminDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => api.delete(`/users/${id}`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+  });
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 export function useAdminSettings() {
