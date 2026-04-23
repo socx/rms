@@ -1,4 +1,8 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
+import Link from '@tiptap/extension-link';
 import {
   useListReminders,
   useCreateReminder,
@@ -66,14 +70,145 @@ const TEMPLATE_VARIABLES = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+// ── Toolbar Button ─────────────────────────────────────────────────────────
+
+function ToolbarButton({ onClick, active, title, children }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={e => { e.preventDefault(); onClick(); }}
+      title={title}
+      aria-pressed={active ?? false}
+      className={`rounded px-1.5 py-0.5 text-xs font-medium min-w-[1.75rem] transition-colors ${
+        active ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Rich Body Editor ────────────────────────────────────────────────────────
+
+function RichBodyEditor({ value, onChange, onEditorReady }) {
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      Link.configure({ openOnClick: false, autolink: true }),
+    ],
+    content: value || '',
+    onUpdate({ editor: ed }) {
+      onChange(ed.isEmpty ? '' : ed.getHTML());
+    },
+    editorProps: {
+      attributes: {
+        class: 'prose prose-sm max-w-none min-h-[120px] px-3 py-2 focus:outline-none',
+        'aria-label': 'Body template editor',
+        role: 'textbox',
+        'aria-multiline': 'true',
+      },
+    },
+  });
+
+  // Notify parent when editor instance is ready
+  useEffect(() => {
+    if (editor && onEditorReady) onEditorReady(editor);
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync initial HTML value into editor (for edit mode)
+  useEffect(() => {
+    if (!editor || !value) return;
+    if (editor.getHTML() !== value) {
+      editor.commands.setContent(value, false);
+    }
+  }, [editor]); // intentionally only on editor creation
+
+  return (
+    <div
+      className="rounded-md overflow-hidden outline outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-indigo-600"
+      aria-label="Body template rich text editor"
+    >
+      {/* Formatting toolbar */}
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-1.5 py-1">
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleBold().run()}
+          active={editor?.isActive('bold')}
+          title="Bold"
+        ><strong>B</strong></ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleItalic().run()}
+          active={editor?.isActive('italic')}
+          title="Italic"
+        ><em>I</em></ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleUnderline().run()}
+          active={editor?.isActive('underline')}
+          title="Underline"
+        ><span className="underline">U</span></ToolbarButton>
+        <span className="mx-1 self-stretch border-l border-gray-300" aria-hidden="true" />
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+          active={editor?.isActive('heading', { level: 2 })}
+          title="Heading 2"
+        >H2</ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+          active={editor?.isActive('heading', { level: 3 })}
+          title="Heading 3"
+        >H3</ToolbarButton>
+        <span className="mx-1 self-stretch border-l border-gray-300" aria-hidden="true" />
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleBulletList().run()}
+          active={editor?.isActive('bulletList')}
+          title="Bullet list"
+        >• List</ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+          active={editor?.isActive('orderedList')}
+          title="Ordered list"
+        >1. List</ToolbarButton>
+        <span className="mx-1 self-stretch border-l border-gray-300" aria-hidden="true" />
+        <ToolbarButton
+          onClick={() => {
+            const prev = editor?.getAttributes('link').href;
+            // eslint-disable-next-line no-alert
+            const url = window.prompt('Link URL', prev ?? '');
+            if (url === null) return;
+            if (url === '') {
+              editor?.chain().focus().unsetLink().run();
+            } else {
+              editor?.chain().focus().setLink({ href: url }).run();
+            }
+          }}
+          active={editor?.isActive('link')}
+          title="Link"
+        >Link</ToolbarButton>
+        <span className="mx-1 self-stretch border-l border-gray-300" aria-hidden="true" />
+        <ToolbarButton
+          onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}
+          title="Clear formatting"
+        >Clear</ToolbarButton>
+      </div>
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
 // ── Variable Helper Component ──────────────────────────────────────────────
 
-function VariableHelper({ fieldRef, value, onChange }) {
+function VariableHelper({ fieldRef, value, onChange, editor }) {
   const [open, setOpen] = useState(false);
 
   function insert(varName) {
     const token = `{{${varName}}}`;
-    const el = fieldRef.current;
+    // TipTap rich-text editor: insert at cursor position
+    if (editor) {
+      editor.chain().focus().insertContent(token).run();
+      return;
+    }
+    // Plain textarea / input: insert at selection
+    const el = fieldRef?.current;
     if (!el) {
       onChange(value + token);
       return;
@@ -301,8 +436,8 @@ function ReminderFormModal({ eventId, onClose, reminder = null, eventDatetime, e
   const [previewData, setPreviewData] = useState(null);
   const [previewError, setPreviewError] = useState(null);
 
-  const subjectRef = useRef(null);
-  const bodyRef    = useRef(null);
+  const subjectRef  = useRef(null);
+  const [bodyEditor, setBodyEditor] = useState(null);
 
   const schedulePreview = useMemo(() => {
     if (form.recurrence === 'NEVER' || !form.remind_at) return null;
@@ -423,20 +558,16 @@ function ReminderFormModal({ eventId, onClose, reminder = null, eventDatetime, e
             </div>
 
             <div>
-              <label htmlFor="rm-body" className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Body template <span aria-hidden className="text-red-500">*</span>
               </label>
-              <textarea
-                id="rm-body"
-                ref={bodyRef}
-                rows={5}
+              <RichBodyEditor
                 value={form.body_template}
-                onChange={e => setField('body_template', e.target.value)}
-                placeholder="<p>Hi {{subscriber_firstname}}, …</p>"
-                className={`${inputClass} resize-y`}
+                onChange={v => setField('body_template', v)}
+                onEditorReady={setBodyEditor}
               />
               <VariableHelper
-                fieldRef={bodyRef}
+                editor={bodyEditor}
                 value={form.body_template}
                 onChange={v => setField('body_template', v)}
               />
