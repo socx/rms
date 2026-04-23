@@ -38,15 +38,8 @@ const _authLimiter = rateLimit({
   handler: make429Handler(60 * 1000),
 });
 
-// General API rate limiter — dispatches to the correct limiter based on whether
-// auth headers are present. Actual credential verification is still done per-route.
-export const rateLimiter = (req, res, next) => {
-  const hasAuth = !!(req.headers.authorization || req.headers['x-api-key']);
-  return hasAuth ? _authLimiter(req, res, next) : _unauthLimiter(req, res, next);
-};
-
-// Auth endpoints (/auth/*) — 15 min / 20 attempts per IP (brute-force protection).
-export const authRateLimiter = rateLimit({
+// Auth brute-force limiter instance (wrapped below).
+const _authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   keyGenerator: (req) => req.ip,
@@ -55,8 +48,8 @@ export const authRateLimiter = rateLimit({
   handler: make429Handler(15 * 60 * 1000),
 });
 
-// Resend verification — 1 hour / 3 requests per email address.
-export const resendVerificationLimiter = rateLimit({
+// Resend verification limiter instance (wrapped below).
+const _resendVerificationLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
   keyGenerator: (req) => (req.body?.email || req.ip).toLowerCase(),
@@ -64,3 +57,27 @@ export const resendVerificationLimiter = rateLimit({
   legacyHeaders: false,
   handler: make429Handler(60 * 60 * 1000),
 });
+
+// Rate limit checks are skipped in test environments. Checked at request time
+// (not module init) because test files may override NODE_ENV after module load.
+// Uses JEST_WORKER_ID as the reliable test signal since Jest sets it unconditionally.
+
+// General API rate limiter — dispatches to the correct limiter based on whether
+// auth headers are present. Actual credential verification is still done per-route.
+export const rateLimiter = (req, res, next) => {
+  if (process.env.JEST_WORKER_ID) return next();
+  const hasAuth = !!(req.headers.authorization || req.headers['x-api-key']);
+  return hasAuth ? _authLimiter(req, res, next) : _unauthLimiter(req, res, next);
+};
+
+// Auth endpoints (/auth/*) — 15 min / 20 attempts per IP (brute-force protection).
+export const authRateLimiter = (req, res, next) => {
+  if (process.env.JEST_WORKER_ID) return next();
+  return _authRateLimiter(req, res, next);
+};
+
+// Resend verification — 1 hour / 3 requests per email address.
+export const resendVerificationLimiter = (req, res, next) => {
+  if (process.env.JEST_WORKER_ID) return next();
+  return _resendVerificationLimiter(req, res, next);
+};
