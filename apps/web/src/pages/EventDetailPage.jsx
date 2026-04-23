@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import { getStoredUserId } from '../hooks/useAuth.js';
 import { useGetEvent, useUpdateEvent } from '../hooks/useEvents.js';
 import RemindersTab from './RemindersTab.jsx';
+import SubscribersTab from './SubscribersTab.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -209,8 +210,9 @@ export default function EventDetailPage() {
             </h1>
             <nav className="-mb-px flex gap-6" aria-label="Event tabs">
               {[
-                { key: 'details',   label: 'Details' },
-                { key: 'reminders', label: 'Reminders' },
+                { key: 'details',     label: 'Details' },
+                { key: 'reminders',   label: 'Reminders' },
+                { key: 'subscribers', label: 'Subscribers' },
               ].map(tab => (
                 <button
                   key={tab.key}
@@ -352,6 +354,14 @@ export default function EventDetailPage() {
                 isOwner={isOwner}
                 canWrite={canWrite}
                 eventTimezone={event.eventTimezone ?? 'UTC'}
+              />
+            </div>
+
+            {/* ── Subscribers tab ────────────────────────────────────── */}
+            <div hidden={activeTab !== 'subscribers'}>
+              <SubscribersTab
+                eventId={id}
+                canWrite={canWrite}
               />
             </div>
           </div>{/* end p-6 */}
