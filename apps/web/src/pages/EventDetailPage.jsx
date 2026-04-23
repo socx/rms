@@ -5,6 +5,7 @@ import { useGetEvent, useUpdateEvent } from '../hooks/useEvents.js';
 import RemindersTab from './RemindersTab.jsx';
 import SubscribersTab from './SubscribersTab.jsx';
 import AccessTab from './AccessTab.jsx';
+import ReportsTab from './ReportsTab.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -214,6 +215,7 @@ export default function EventDetailPage() {
                 { key: 'details',     label: 'Details' },
                 { key: 'reminders',   label: 'Reminders' },
                 { key: 'subscribers', label: 'Subscribers' },
+                { key: 'reports',     label: 'Reports' },
                 ...(isOwner ? [{ key: 'access', label: 'Access' }] : []),
               ].map(tab => (
                 <button
@@ -365,6 +367,11 @@ export default function EventDetailPage() {
                 eventId={id}
                 canWrite={canWrite}
               />
+            </div>
+
+            {/* ── Reports tab ────────────────────────────────────────── */}
+            <div hidden={activeTab !== 'reports'}>
+              <ReportsTab eventId={id} />
             </div>
 
             {/* ── Access tab (owner only) ─────────────────────────────── */}
