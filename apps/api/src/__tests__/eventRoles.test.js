@@ -175,7 +175,7 @@ describe('Event detail — role-scoped access (GET & PATCH)', () => {
     });
   }, 30000);
 
-  test('contributor cannot PATCH event (403)', async () => {
+  test('contributor can PATCH event (200) and fields are updated', async () => {
     const suffix = `${Date.now() % 100000}g`;
     const owner = await createVerifiedUser(suffix + 'o');
     const contrib = await createVerifiedUser(suffix + 'c');
@@ -185,10 +185,11 @@ describe('Event detail — role-scoped access (GET & PATCH)', () => {
     const r = await request(baseUrl)
       .patch(`/api/v1/events/${eventId}`)
       .set('Authorization', `Bearer ${contrib.token}`)
-      .send({ subject: 'Should Fail' })
+      .send({ subject: 'Contributor Updated' })
       .set('Accept', 'application/json');
 
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(200);
+    expect(r.body.data.event.subject).toBe('Contributor Updated');
   }, 30000);
 
   test('reader cannot PATCH event (403)', async () => {

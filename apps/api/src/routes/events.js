@@ -75,7 +75,7 @@ eventsRouter.get('/:id', authenticate, requireEventRole('OWNER', 'CONTRIBUTOR', 
 
 // PATCH /events/:id - update event (owner or system_admin)
 // PATCH /events/:id - update event (owner or system_admin)
-eventsRouter.patch('/:id', authenticate, requireEventRole('OWNER'), async (req, res, next) => {
+eventsRouter.patch('/:id', authenticate, requireEventRole('OWNER', 'CONTRIBUTOR'), async (req, res, next) => {
 	try {
 		const { id } = req.params;
 		const { subject, description, eventDatetime, eventTimezone, location, status } = req.body || {};
