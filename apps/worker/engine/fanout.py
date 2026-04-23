@@ -19,9 +19,9 @@ def fan_out_reminder(session, reminder_id: str):
     4. Trigger delivery for each dispatch
     5. Compute next occurrence and update reminder status
     """
-    # Load reminder
+    # Load reminder (cast channels to text[] so psycopg2 decodes the enum array as a Python list)
     reminder = session.execute(
-        text('SELECT * FROM reminders WHERE id = :id'), {'id': reminder_id}
+        text('SELECT *, channels::text[] AS channels FROM reminders WHERE id = :id'), {'id': reminder_id}
     ).mappings().fetchone()
     if not reminder:
         logger.warning('Reminder %s not found', reminder_id)
