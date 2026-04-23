@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   useListReminders,
   useCreateReminder,
@@ -180,6 +180,92 @@ function StatusBadge({ status }) {
   );
 }
 
+// ── Occurrence schedule computation ───────────────────────────────────────
+
+function addMonths(date, months) {
+  const d = new Date(date);
+  const targetMonth = d.getMonth() + months;
+  d.setMonth(targetMonth);
+  // Clamp to last day of intended month if overflow (e.g. Jan 31 + 1 month → Feb 28)
+  const intendedMonth = ((targetMonth % 12) + 12) % 12;
+  if (d.getMonth() !== intendedMonth) {
+    d.setDate(0); // last day of intendedMonth
+  }
+  return d;
+}
+
+function nextWeekday(date, tz) {
+  let d = new Date(date.getTime() + 60 * 60 * 1000); // step at least 1 hour to escape self
+  // Advance until Mon–Fri in event timezone
+  for (let i = 0; i < 8; i++) {
+    const dow = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d).slice(0, 2) === 'Sa' ? 6 : new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'narrow' }).format(d) === 'S' ? new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d) === 'Sun' ? 0 : 6 : -1);
+    // Simpler: use numeric weekday
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d);
+    const isSat = parts === 'Sat';
+    const isSun = parts === 'Sun';
+    if (!isSat && !isSun) break;
+    d = new Date(d.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return d;
+}
+
+function nextWeekendDay(date, tz) {
+  let d = new Date(date.getTime() + 60 * 60 * 1000);
+  for (let i = 0; i < 8; i++) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d);
+    if (parts === 'Sat' || parts === 'Sun') break;
+    d = new Date(d.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return d;
+}
+
+function computeNext(current, recurrence, tz) {
+  const ms = current.getTime();
+  const H  = 60 * 60 * 1000;
+  const D  = 24 * H;
+  switch (recurrence) {
+    case 'HOURLY':         return new Date(ms + H);
+    case 'DAILY':          return new Date(ms + D);
+    case 'WEEKDAYS':       return nextWeekday(current, tz || 'UTC');
+    case 'WEEKENDS':       return nextWeekendDay(current, tz || 'UTC');
+    case 'WEEKLY':         return new Date(ms + 7 * D);
+    case 'FORTNIGHTLY':    return new Date(ms + 14 * D);
+    case 'MONTHLY':        return addMonths(current, 1);
+    case 'EVERY_3_MONTHS': return addMonths(current, 3);
+    case 'EVERY_6_MONTHS': return addMonths(current, 6);
+    case 'YEARLY':         return addMonths(current, 12);
+    default:               return null;
+  }
+}
+
+/**
+ * Returns { first3: Date[], final: Date | null }
+ * Walks occurrences until >= cutoff, collecting up to 3 and tracking the last valid one.
+ */
+function computeSchedulePreview(remindAt, recurrence, eventDatetime, tz) {
+  if (!remindAt || !recurrence || recurrence === 'NEVER') return null;
+  const cutoff  = eventDatetime ? new Date(eventDatetime) : null;
+  let   current = new Date(remindAt);
+
+  if (isNaN(current.getTime())) return null;
+  if (cutoff && current >= cutoff) return { first3: [], final: null };
+
+  const first3 = [];
+  let   final  = null;
+  const MAX_STEPS = 500;
+
+  for (let i = 0; i < MAX_STEPS; i++) {
+    if (cutoff && current >= cutoff) break;
+    if (first3.length < 3) first3.push(new Date(current));
+    final = new Date(current);
+    const next = computeNext(current, recurrence, tz);
+    if (!next || isNaN(next.getTime()) || next <= current) break;
+    current = next;
+  }
+
+  return { first3, final };
+}
+
 // ── Empty form state ────────────────────────────────────────────────────────
 
 function emptyForm() {
@@ -204,7 +290,7 @@ function reminderToForm(r) {
 
 // ── Reminder Form Modal ─────────────────────────────────────────────────────
 
-function ReminderFormModal({ eventId, onClose, reminder = null }) {
+function ReminderFormModal({ eventId, onClose, reminder = null, eventDatetime, eventTimezone }) {
   const isEdit = !!reminder;
   const create = useCreateReminder();
   const update = useUpdateReminder();
@@ -217,6 +303,12 @@ function ReminderFormModal({ eventId, onClose, reminder = null }) {
 
   const subjectRef = useRef(null);
   const bodyRef    = useRef(null);
+
+  const schedulePreview = useMemo(() => {
+    if (form.recurrence === 'NEVER' || !form.remind_at) return null;
+    const remindAtISO = new Date(form.remind_at).toISOString();
+    return computeSchedulePreview(remindAtISO, form.recurrence, eventDatetime, eventTimezone);
+  }, [form.recurrence, form.remind_at, eventDatetime, eventTimezone]);
 
   const mutation = isEdit ? update : create;
 
@@ -392,6 +484,35 @@ function ReminderFormModal({ eventId, onClose, reminder = null }) {
               </select>
             </div>
 
+            {/* Occurrence schedule preview */}
+            {schedulePreview && (
+              <div
+                aria-label="Occurrence schedule preview"
+                className="rounded-md bg-indigo-50 px-4 py-3 text-sm text-indigo-900 ring-1 ring-indigo-200 space-y-2"
+              >
+                <p className="font-semibold text-indigo-700">Scheduled occurrences</p>
+                {schedulePreview.first3.length === 0 ? (
+                  <p className="text-xs text-indigo-600">No occurrences before the event date.</p>
+                ) : (
+                  <ol className="list-decimal list-inside space-y-0.5">
+                    {schedulePreview.first3.map((d, i) => (
+                      <li key={i} className="text-xs">
+                        {formatDatetime(d.toISOString(), eventTimezone || 'UTC')}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {schedulePreview.final &&
+                  schedulePreview.first3.length > 0 &&
+                  schedulePreview.final.getTime() !== schedulePreview.first3[schedulePreview.first3.length - 1].getTime() && (
+                  <p className="text-xs text-indigo-600">
+                    <span className="font-medium">Final occurrence:</span>{' '}
+                    {formatDatetime(schedulePreview.final.toISOString(), eventTimezone || 'UTC')}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-between pt-2">
               {isEdit && (
                 <button
@@ -463,7 +584,7 @@ function ReminderFormModal({ eventId, onClose, reminder = null }) {
 
 // ── Reminder Row ────────────────────────────────────────────────────────────
 
-function ReminderRow({ reminder, eventId, canEdit, canDelete, eventTimezone }) {
+function ReminderRow({ reminder, eventId, canEdit, canDelete, eventTimezone, eventDatetime }) {
   const [showEdit, setShowEdit] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const deleteReminder = useDeleteReminder();
@@ -540,6 +661,8 @@ function ReminderRow({ reminder, eventId, canEdit, canDelete, eventTimezone }) {
           eventId={eventId}
           reminder={reminder}
           onClose={() => setShowEdit(false)}
+          eventDatetime={eventDatetime}
+          eventTimezone={eventTimezone}
         />
       )}
 
@@ -587,12 +710,13 @@ function ReminderRow({ reminder, eventId, canEdit, canDelete, eventTimezone }) {
 
 /**
  * Props:
- *  eventId      – string
- *  isOwner      – boolean
- *  canWrite     – boolean (OWNER or CONTRIBUTOR + event ACTIVE)
+ *  eventId       – string
+ *  isOwner       – boolean
+ *  canWrite      – boolean (OWNER or CONTRIBUTOR + event ACTIVE)
  *  eventTimezone – string
+ *  eventDatetime – string (ISO UTC)
  */
-export default function RemindersTab({ eventId, isOwner, canWrite, eventTimezone }) {
+export default function RemindersTab({ eventId, isOwner, canWrite, eventTimezone, eventDatetime }) {
   const { data: reminders = [], isLoading, isError, error } = useListReminders(eventId);
   const [showAdd, setShowAdd] = useState(false);
 
@@ -639,6 +763,7 @@ export default function RemindersTab({ eventId, isOwner, canWrite, eventTimezone
               canEdit={canWrite}
               canDelete={isOwner}
               eventTimezone={eventTimezone}
+              eventDatetime={eventDatetime}
             />
           ))}
         </ul>
@@ -649,6 +774,8 @@ export default function RemindersTab({ eventId, isOwner, canWrite, eventTimezone
         <ReminderFormModal
           eventId={eventId}
           onClose={() => setShowAdd(false)}
+          eventDatetime={eventDatetime}
+          eventTimezone={eventTimezone}
         />
       )}
     </div>

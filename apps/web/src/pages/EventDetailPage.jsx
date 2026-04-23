@@ -358,6 +358,7 @@ export default function EventDetailPage() {
                 isOwner={isOwner}
                 canWrite={canWrite}
                 eventTimezone={event.eventTimezone ?? 'UTC'}
+                eventDatetime={event.eventDatetime ?? null}
               />
             </div>
 
