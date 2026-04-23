@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   useListReminders,
   useCreateReminder,
@@ -46,7 +46,81 @@ const STATUS_BADGE_STYLES = {
   FAILED:     'bg-red-200 text-red-800',
 };
 
+const TEMPLATE_VARIABLES = [
+  { name: 'subscriber_firstname',  label: 'subscriber_firstname' },
+  { name: 'subscriber_lastname',   label: 'subscriber_lastname' },
+  { name: 'subscriber_fullname',   label: 'subscriber_fullname' },
+  { name: 'event_subject',         label: 'event_subject' },
+  { name: 'event_description',     label: 'event_description' },
+  { name: 'event_datetime',        label: 'event_datetime' },
+  { name: 'event_date',            label: 'event_date' },
+  { name: 'event_time',            label: 'event_time' },
+  { name: 'event_location',        label: 'event_location' },
+  { name: 'event_timezone_label',  label: 'event_timezone_label' },
+  { name: 'owner_firstname',       label: 'owner_firstname' },
+  { name: 'owner_lastname',        label: 'owner_lastname' },
+  { name: 'owner_fullname',        label: 'owner_fullname' },
+  { name: 'reminder_datetime',     label: 'reminder_datetime' },
+  { name: 'occurrence_number',     label: 'occurrence_number' },
+];
+
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+// ── Variable Helper Component ──────────────────────────────────────────────
+
+function VariableHelper({ fieldRef, value, onChange }) {
+  const [open, setOpen] = useState(false);
+
+  function insert(varName) {
+    const token = `{{${varName}}}`;
+    const el = fieldRef.current;
+    if (!el) {
+      onChange(value + token);
+      return;
+    }
+    const start = el.selectionStart ?? value.length;
+    const end   = el.selectionEnd   ?? value.length;
+    const newValue = value.slice(0, start) + token + value.slice(end);
+    onChange(newValue);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-label="Toggle template variable helper"
+        className="text-xs text-indigo-600 hover:text-indigo-500 font-medium select-none"
+      >
+        {open ? '▲ Hide variables' : '▼ Insert variable'}
+      </button>
+      {open && (
+        <div
+          aria-label="Template variable helper"
+          className="mt-2 flex flex-wrap gap-1"
+        >
+          {TEMPLATE_VARIABLES.map(v => (
+            <button
+              key={v.name}
+              type="button"
+              title={`Insert {{${v.name}}}`}
+              onClick={() => insert(v.name)}
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-mono bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer"
+            >
+              {`{{${v.name}}}`}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const inputClass =
   'block w-full rounded-md border-0 px-3 py-2 text-sm text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600';
@@ -140,6 +214,9 @@ function ReminderFormModal({ eventId, onClose, reminder = null }) {
   const [error, setError] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [previewError, setPreviewError] = useState(null);
+
+  const subjectRef = useRef(null);
+  const bodyRef    = useRef(null);
 
   const mutation = isEdit ? update : create;
 
@@ -239,11 +316,17 @@ function ReminderFormModal({ eventId, onClose, reminder = null }) {
               </label>
               <input
                 id="rm-subject"
+                ref={subjectRef}
                 type="text"
                 value={form.subject_template}
                 onChange={e => setField('subject_template', e.target.value)}
                 placeholder="e.g. Reminder: {{event_subject}}"
                 className={inputClass}
+              />
+              <VariableHelper
+                fieldRef={subjectRef}
+                value={form.subject_template}
+                onChange={v => setField('subject_template', v)}
               />
             </div>
 
@@ -253,11 +336,17 @@ function ReminderFormModal({ eventId, onClose, reminder = null }) {
               </label>
               <textarea
                 id="rm-body"
+                ref={bodyRef}
                 rows={5}
                 value={form.body_template}
                 onChange={e => setField('body_template', e.target.value)}
                 placeholder="<p>Hi {{subscriber_firstname}}, …</p>"
                 className={`${inputClass} resize-y`}
+              />
+              <VariableHelper
+                fieldRef={bodyRef}
+                value={form.body_template}
+                onChange={v => setField('body_template', v)}
               />
             </div>
 
