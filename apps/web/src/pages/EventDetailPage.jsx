@@ -4,6 +4,7 @@ import { getStoredUserId } from '../hooks/useAuth.js';
 import { useGetEvent, useUpdateEvent } from '../hooks/useEvents.js';
 import RemindersTab from './RemindersTab.jsx';
 import SubscribersTab from './SubscribersTab.jsx';
+import AccessTab from './AccessTab.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -213,6 +214,7 @@ export default function EventDetailPage() {
                 { key: 'details',     label: 'Details' },
                 { key: 'reminders',   label: 'Reminders' },
                 { key: 'subscribers', label: 'Subscribers' },
+                ...(isOwner ? [{ key: 'access', label: 'Access' }] : []),
               ].map(tab => (
                 <button
                   key={tab.key}
@@ -362,6 +364,14 @@ export default function EventDetailPage() {
               <SubscribersTab
                 eventId={id}
                 canWrite={canWrite}
+              />
+            </div>
+
+            {/* ── Access tab (owner only) ─────────────────────────────── */}
+            <div hidden={activeTab !== 'access'}>
+              <AccessTab
+                eventId={id}
+                isOwner={isOwner}
               />
             </div>
           </div>{/* end p-6 */}
