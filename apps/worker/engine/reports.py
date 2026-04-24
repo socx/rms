@@ -47,7 +47,7 @@ def maybe_generate_report(session, reminder_id: str, occurrence_number: int):
     session.execute(text("""
         INSERT INTO reminder_reports
           (reminder_id, occurrence_number, total_dispatches, total_sent, total_failed, total_skipped, failure_details)
-        VALUES (:rid, :occ, :total, :sent, :failed, :skipped, :details::jsonb)
+        VALUES (:rid, :occ, :total, :sent, :failed, :skipped, CAST(:details AS jsonb))
         ON CONFLICT (reminder_id, occurrence_number) DO NOTHING
     """), {
         'rid': reminder_id, 'occ': occurrence_number,

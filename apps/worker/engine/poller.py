@@ -42,9 +42,11 @@ def poll_and_dispatch(session, lookahead_seconds: int = 65):
     logger.info('Found %d due reminder(s)', len(reminder_ids))
 
     # Mark as processing immediately within the same transaction
+    # Note: CAST(:ids AS uuid[]) instead of :ids::uuid[] — SQLAlchemy 2.0's text()
+    # parameter regex uses a (?!:) lookahead and will NOT bind :ids when followed by ::
     session.execute(text("""
         UPDATE reminders SET status = 'processing', updated_at = NOW()
-        WHERE id = ANY(:ids::uuid[])
+        WHERE id = ANY(CAST(:ids AS uuid[]))
     """), {'ids': reminder_ids})
     session.commit()
 

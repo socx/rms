@@ -99,7 +99,7 @@ def _create_dispatch(session, reminder, subscriber, contact, channel,
         INSERT INTO reminder_dispatches
           (reminder_id, subscriber_id, subscriber_contact_id, channel, occurrence_number,
            rendered_subject, rendered_body, status, failure_reason)
-        VALUES (:rid, :sid, :cid, :ch, :occ, :subj, :body, :status::dispatch_status, :reason)
+        VALUES (:rid, :sid, :cid, :ch, :occ, :subj, :body, CAST(:status AS dispatch_status), :reason)
         RETURNING id
     """), {
         'rid': str(reminder['id']), 'sid': str(subscriber['id']),
