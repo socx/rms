@@ -40,8 +40,9 @@ export async function authenticate(req, res, next) {
 
 export function requireEventRole(...roles) {
   return async (req, res, next) => {
-    // Allow system_admin regardless of event access (case-insensitive)
-    if (String(req.user.systemRole).toLowerCase() === 'system_admin') return next();
+    // Allow system_admin and super_admin regardless of event access
+    const role = String(req.user.systemRole).toLowerCase();
+    if (role === 'system_admin' || role === 'super_admin') return next();
 
     // Allow event owner
     const event = await prisma.event.findUnique({ where: { id: req.params.id }, select: { ownerId: true } });
@@ -61,8 +62,15 @@ export function requireEventRole(...roles) {
 }
 
 export function requireAdmin(req, res, next) {
-  if (String(req.user?.systemRole).toLowerCase() !== 'system_admin')
+  const role = String(req.user?.systemRole).toLowerCase();
+  if (role !== 'system_admin' && role !== 'super_admin')
     return res.status(403).json(err('FORBIDDEN', 'system_admin role required.'));
+  next();
+}
+
+export function requireSuperAdmin(req, res, next) {
+  if (String(req.user?.systemRole).toLowerCase() !== 'super_admin')
+    return res.status(403).json(err('FORBIDDEN', 'super_admin role required.'));
   next();
 }
 

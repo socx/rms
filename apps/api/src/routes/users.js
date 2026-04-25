@@ -3,13 +3,16 @@ import bcrypt from 'bcrypt';
 import { authenticate } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, fail, forbidden, notFound, conflict } from '../utils/response.js';
+import { writeAudit, getIp } from '../utils/audit.js';
 
 export const usersRouter = Router();
 
 // POST /users  — system_admin creates a user directly (pre-verified)
 usersRouter.post('/', authenticate, async (req, res, next) => {
 	try {
-		if (String(req.user.systemRole).toLowerCase() !== 'system_admin')
+		// POST /users: allow system_admin OR super_admin to create users
+		const callerRole = String(req.user.systemRole).toLowerCase();
+		if (callerRole !== 'system_admin' && callerRole !== 'super_admin')
 			return forbidden(res, 'system_admin role required.');
 
 		const { firstname, lastname, email, password, timezone, phone, systemRole } = req.body || {};
@@ -23,8 +26,11 @@ usersRouter.post('/', authenticate, async (req, res, next) => {
 		const existing = await prisma.user.findUnique({ where: { email } });
 		if (existing) return conflict(res, 'EMAIL_EXISTS', 'An account with that email already exists.');
 
-		const allowedRoles = ['USER', 'SYSTEM_ADMIN'];
+		const allowedRoles = ['USER', 'SYSTEM_ADMIN', 'SUPER_ADMIN'];
 		const role = systemRole ? String(systemRole).toUpperCase() : 'USER';
+		// Only super_admin can create other super_admins
+		if (role === 'SUPER_ADMIN' && String(req.user.systemRole).toLowerCase() !== 'super_admin')
+			return forbidden(res, 'Only super_admin can create super_admin accounts.');
 		if (!allowedRoles.includes(role))
 			return fail(res, 'INVALID_ROLE', `systemRole must be one of: ${allowedRoles.join(', ')}.`, 400);
 
@@ -46,6 +52,7 @@ usersRouter.post('/', authenticate, async (req, res, next) => {
 			select: { id: true, firstname: true, lastname: true, email: true, phone: true, timezone: true, systemRole: true, status: true, emailVerified: true, createdAt: true },
 		});
 
+		writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'CREATE', entityType: 'USER', entityId: user.id, entitySummary: user.email, ipAddress: getIp(req) });
 		return created(res, { user });
 	} catch (e) { next(e); }
 });
@@ -55,7 +62,8 @@ usersRouter.get('/:id', authenticate, async (req, res, next) => {
 	try {
 		const { id } = req.params;
 		// allow users to fetch their own profile or admins to fetch any
-		if (req.user.id !== id && String(req.user.systemRole).toLowerCase() !== 'system_admin')
+		const callerRole = String(req.user.systemRole).toLowerCase();
+		if (req.user.id !== id && callerRole !== 'system_admin' && callerRole !== 'super_admin')
 			return forbidden(res, 'Insufficient permissions.');
 
 		const user = await prisma.user.findUnique({ where: { id }, select: { id: true, firstname: true, lastname: true, email: true, phone: true, timezone: true, createdAt: true, emailVerified: true, systemRole: true, status: true } });
@@ -68,7 +76,8 @@ usersRouter.get('/:id', authenticate, async (req, res, next) => {
 usersRouter.patch('/:id', authenticate, async (req, res, next) => {
 	try {
 		const { id } = req.params;
-		if (req.user.id !== id && String(req.user.systemRole).toLowerCase() !== 'system_admin')
+		const patchRole = String(req.user.systemRole).toLowerCase();
+		if (req.user.id !== id && patchRole !== 'system_admin' && patchRole !== 'super_admin')
 			return forbidden(res, 'Insufficient permissions.');
 
 		const { firstname, lastname, timezone, phone, email } = req.body || {};

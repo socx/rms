@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, requireEventRole } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, fail, notFound, conflict } from '../utils/response.js';
+import { writeAudit, getIp } from '../utils/audit.js';
 import {
   validateTemplate,
   buildVarMap,
@@ -121,6 +122,7 @@ remindersRouter.post('/:id/reminders', authenticate, requireEventRole('OWNER', '
         recurrence:      RECURRENCE_TO_PRISMA[rec],
       },
     });
+    writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'CREATE', entityType: 'REMINDER', entityId: reminder.id, entitySummary: reminder.subjectTemplate, ipAddress: getIp(req) });
     return created(res, { reminder });
   } catch (e) { next(e); }
 });
@@ -214,6 +216,7 @@ remindersRouter.patch('/:id/reminders/:rid', authenticate, requireEventRole('OWN
     }
 
     const updated = await prisma.reminder.update({ where: { id: reminder.id }, data });
+    writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'UPDATE', entityType: 'REMINDER', entityId: reminder.id, entitySummary: reminder.subjectTemplate, changes: data, ipAddress: getIp(req) });
     return ok(res, { reminder: updated });
   } catch (e) { next(e); }
 });
@@ -233,10 +236,12 @@ remindersRouter.delete('/:id/reminders/:rid', authenticate, requireEventRole('OW
         where: { id: reminder.id },
         data:  { status: 'CANCELLED' },
       });
+      writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'DELETE', entityType: 'REMINDER', entityId: reminder.id, entitySummary: reminder.subjectTemplate, ipAddress: getIp(req) });
       return ok(res, { cancelled: true, reminder: cancelled });
     }
 
     await prisma.reminder.delete({ where: { id: reminder.id } });
+    writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'DELETE', entityType: 'REMINDER', entityId: reminder.id, entitySummary: reminder.subjectTemplate, ipAddress: getIp(req) });
     return ok(res, { deleted: true });
   } catch (e) { next(e); }
 });

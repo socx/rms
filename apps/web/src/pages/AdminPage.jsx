@@ -9,6 +9,9 @@ import {
   useAdminSettings,
   useAdminUpdateSetting,
   useAdminEvents,
+  useAdminCreateUser,
+  useAdminAuditLogs,
+  useAdminLogs,
 } from '../hooks/useAdmin.js';
 
 // ── Status / role badge helpers ───────────────────────────────────────────────
@@ -20,6 +23,7 @@ const USER_STATUS_STYLES = {
 };
 
 const ROLE_STYLES = {
+  SUPER_ADMIN:  'bg-purple-200 text-purple-800',
   SYSTEM_ADMIN: 'bg-purple-100 text-purple-700',
   USER:         'bg-gray-100 text-gray-600',
 };
@@ -42,14 +46,91 @@ function StatusBadge({ label, styleMap, value }) {
   );
 }
 
+// ── Create User modal ─────────────────────────────────────────────────────────
+
+function CreateUserModal({ onClose }) {
+  const createUser = useAdminCreateUser();
+  const [form, setForm] = useState({ firstname: '', lastname: '', email: '', password: '', systemRole: 'USER' });
+  const [err, setErr] = useState(null);
+
+  function set(field, value) { setForm(f => ({ ...f, [field]: value })); }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      await createUser.mutateAsync(form);
+      onClose();
+    } catch (e) {
+      setErr(e?.response?.data?.error?.message ?? 'Failed to create user.');
+    }
+  }
+
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-labelledby="create-user-heading"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+    >
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+        <h2 id="create-user-heading" className="text-base font-semibold text-gray-900 mb-4">Create User</h2>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-700 mb-1">First name</label>
+              <input required value={form.firstname} onChange={e => set('firstname', e.target.value)}
+                className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Last name</label>
+              <input required value={form.lastname} onChange={e => set('lastname', e.target.value)}
+                className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <input required type="email" value={form.email} onChange={e => set('email', e.target.value)}
+              className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
+            <input required type="password" minLength={8} value={form.password} onChange={e => set('password', e.target.value)}
+              className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Role</label>
+            <select value={form.systemRole} onChange={e => set('systemRole', e.target.value)}
+              className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="USER">User</option>
+              <option value="SYSTEM_ADMIN">System Admin</option>
+            </select>
+          </div>
+          {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
+          <div className="flex gap-3 justify-end mt-2">
+            <button type="button" onClick={onClose}
+              className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-white ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+              Cancel
+            </button>
+            <button type="submit" disabled={createUser.isPending}
+              className="rounded-md px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60">
+              {createUser.isPending ? 'Creating…' : 'Create user'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Users tab ─────────────────────────────────────────────────────────────────
 
-function UsersTab() {
+function UsersTab({ callerRole }) {
   const currentUserId = getStoredUserId();
+  const isSuperAdmin = callerRole === 'super_admin';
   const [query, setQuery]           = useState('');
   const [search, setSearch]         = useState('');
-  const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError,  setDeleteError]  = useState(null);
+  const [showCreate, setShowCreate]     = useState(false);
   const users      = useAdminUsers({ q: search });
   const updateUser = useAdminUpdateUser();
   const deleteUser = useAdminDeleteUser();
@@ -71,7 +152,7 @@ function UsersTab() {
 
   return (
     <section aria-label="Users">
-      {/* Delete confirm dialog */}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
       {deleteTarget && (
         <div
           role="dialog"
@@ -110,22 +191,31 @@ function UsersTab() {
           </div>
         </div>
       )}
-      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
-        <input
-          type="search"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Search by name or email…"
-          aria-label="Search users"
-          className="block w-64 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
-        />
+      <div className="flex items-center gap-2 mb-4">
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <input
+            type="search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search by name or email…"
+            aria-label="Search users"
+            className="block w-64 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
+          />
+          <button
+            type="submit"
+            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >
+            Search
+          </button>
+        </form>
         <button
-          type="submit"
-          className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="ml-auto rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
         >
-          Search
+          + Create user
         </button>
-      </form>
+      </div>
 
       {users.isPending && <p className="text-sm text-gray-500">Loading users…</p>}
       {users.isError   && <p className="text-sm text-red-600">Failed to load users.</p>}
@@ -162,23 +252,37 @@ function UsersTab() {
                             <button
                               aria-label={`${u.status === 'ACTIVE' ? 'Disable' : 'Enable'} ${u.firstname} ${u.lastname}`}
                               onClick={() => updateUser.mutate({ id: u.id, status: u.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' })}
-                              className="rounded px-2 py-1 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-700"
+                              disabled={!isSuperAdmin && (u.systemRole === 'SYSTEM_ADMIN' || u.systemRole === 'SUPER_ADMIN')}
+                              className="rounded px-2 py-1 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               {u.status === 'ACTIVE' ? 'Disable' : 'Enable'}
                             </button>
-                            <button
-                              aria-label={u.systemRole === 'SYSTEM_ADMIN'
-                                ? `Demote ${u.email} from admin`
-                                : `Promote ${u.email} to admin`}
-                              onClick={() => updateUser.mutate({
-                                id: u.id,
-                                systemRole: u.systemRole === 'SYSTEM_ADMIN' ? 'USER' : 'SYSTEM_ADMIN',
-                              })}
-                              className="rounded px-2 py-1 text-xs font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700"
-                            >
-                              {u.systemRole === 'SYSTEM_ADMIN' ? 'Demote' : 'Promote'}
-                            </button>
-                            {u.status !== 'DELETED' && (
+                            {(isSuperAdmin || (u.systemRole !== 'SYSTEM_ADMIN' && u.systemRole !== 'SUPER_ADMIN')) && (
+                              <button
+                                aria-label={u.systemRole === 'SYSTEM_ADMIN'
+                                  ? `Demote ${u.email} from admin`
+                                  : u.systemRole === 'SUPER_ADMIN'
+                                  ? `Demote ${u.email} from super admin`
+                                  : `Promote ${u.email} to admin`}
+                                onClick={() => updateUser.mutate({
+                                  id: u.id,
+                                  systemRole: (u.systemRole === 'SYSTEM_ADMIN' || u.systemRole === 'SUPER_ADMIN') ? 'USER' : 'SYSTEM_ADMIN',
+                                })}
+                                className="rounded px-2 py-1 text-xs font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700"
+                              >
+                                {(u.systemRole === 'SYSTEM_ADMIN' || u.systemRole === 'SUPER_ADMIN') ? 'Demote' : 'Promote'}
+                              </button>
+                            )}
+                            {isSuperAdmin && u.systemRole !== 'SUPER_ADMIN' && (
+                              <button
+                                aria-label={`Promote ${u.email} to super admin`}
+                                onClick={() => updateUser.mutate({ id: u.id, systemRole: 'SUPER_ADMIN' })}
+                                className="rounded px-2 py-1 text-xs font-medium bg-purple-50 hover:bg-purple-100 text-purple-700"
+                              >
+                                → Super Admin
+                              </button>
+                            )}
+                            {u.status !== 'DELETED' && isSuperAdmin && (
                               <button
                                 aria-label={`Delete ${u.firstname} ${u.lastname}`}
                                 onClick={() => { setDeleteError(null); setDeleteTarget({ id: u.id, name: `${u.firstname} ${u.lastname}` }); }}
@@ -404,13 +508,199 @@ function EventsTab() {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Audit tab ─────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { key: 'users',    label: 'Users' },
-  { key: 'settings', label: 'Settings' },
-  { key: 'events',   label: 'Events' },
-];
+const AUDIT_ACTION_STYLES = {
+  CREATE: 'bg-green-100 text-green-700',
+  UPDATE: 'bg-blue-100 text-blue-700',
+  DELETE: 'bg-red-100 text-red-700',
+};
+
+function AuditTab() {
+  const [filters, setFilters] = useState({ entityType: '', action: '', dateFrom: '', dateTo: '' });
+  const [applied, setApplied] = useState({});
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
+  const audit = useAdminAuditLogs({ ...applied, limit, offset });
+  const logs  = audit.data?.data?.logs ?? [];
+  const total = audit.data?.meta?.total ?? 0;
+
+  function applyFilters(e) {
+    e.preventDefault();
+    setOffset(0);
+    setApplied({ ...filters });
+  }
+
+  return (
+    <section aria-label="Audit logs">
+      <form onSubmit={applyFilters} className="flex flex-wrap gap-2 mb-4 items-end">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Entity type</label>
+          <select value={filters.entityType} onChange={e => setFilters(f => ({ ...f, entityType: e.target.value }))}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="">All</option>
+            <option value="EVENT">Event</option>
+            <option value="REMINDER">Reminder</option>
+            <option value="SUBSCRIBER">Subscriber</option>
+            <option value="USER">User</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Action</label>
+          <select value={filters.action} onChange={e => setFilters(f => ({ ...f, action: e.target.value }))}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="">All</option>
+            <option value="CREATE">Create</option>
+            <option value="UPDATE">Update</option>
+            <option value="DELETE">Delete</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">From</label>
+          <input type="date" value={filters.dateFrom} onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value }))}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">To</label>
+          <input type="date" value={filters.dateTo} onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value }))}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        </div>
+        <button type="submit" className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500">
+          Apply
+        </button>
+      </form>
+
+      {audit.isPending && <p className="text-sm text-gray-500">Loading audit logs…</p>}
+      {audit.isError   && <p className="text-sm text-red-600">Failed to load audit logs.</p>}
+
+      {audit.isSuccess && (
+        logs.length === 0
+          ? <p className="text-sm text-gray-500 py-8 text-center">No audit logs found.</p>
+          : (
+            <>
+              <div className="overflow-x-auto">
+                <table aria-label="Audit log" className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-3 text-left font-medium text-gray-900">Time</th>
+                      <th className="px-3 py-3 text-left font-medium text-gray-900">Actor</th>
+                      <th className="px-3 py-3 text-left font-medium text-gray-900">Action</th>
+                      <th className="px-3 py-3 text-left font-medium text-gray-900">Type</th>
+                      <th className="px-3 py-3 text-left font-medium text-gray-900">Summary</th>
+                      <th className="px-3 py-3 text-left font-medium text-gray-900">IP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {logs.map(l => (
+                      <tr key={l.id}>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          {new Date(l.createdAt).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-700">{l.actorEmail}</td>
+                        <td className="px-3 py-2">
+                          <StatusBadge label="Action" styleMap={AUDIT_ACTION_STYLES} value={l.action} />
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600 capitalize">{l.entityType.toLowerCase()}</td>
+                        <td className="px-3 py-2 text-xs text-gray-700 max-w-xs truncate">{l.entitySummary ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{l.ipAddress ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <nav aria-label="Audit pagination" className="mt-4 flex items-center gap-3 justify-end">
+                <button disabled={offset === 0} onClick={() => setOffset(o => Math.max(0, o - limit))}
+                  className="rounded px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40">
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">{offset + 1}–{Math.min(offset + limit, total)} of {total}</span>
+                <button disabled={offset + limit >= total} onClick={() => setOffset(o => o + limit)}
+                  className="rounded px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40">
+                  Next
+                </button>
+              </nav>
+            </>
+          )
+      )}
+    </section>
+  );
+}
+
+// ── Logs tab (super_admin only) ───────────────────────────────────────────────
+
+function LogsTab() {
+  const [tier,   setTier]   = useState('api');
+  const [stream, setStream] = useState('out');
+  const [lines,  setLines]  = useState(200);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const logs = useAdminLogs({ tier, stream, lines });
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => logs.refetch(), 5000);
+    return () => clearInterval(id);
+  }, [autoRefresh, logs]);
+
+  return (
+    <section aria-label="Log viewer">
+      <div className="flex flex-wrap gap-3 mb-4 items-end">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Tier</label>
+          <select value={tier} onChange={e => setTier(e.target.value)}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="api">API</option>
+            <option value="worker">Worker</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Stream</label>
+          <select value={stream} onChange={e => setStream(e.target.value)}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="out">stdout</option>
+            <option value="error">stderr</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Lines</label>
+          <select value={lines} onChange={e => setLines(Number(e.target.value))}
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value={50}>50</option>
+            <option value={200}>200</option>
+            <option value={500}>500</option>
+            <option value={1000}>1000</option>
+          </select>
+        </div>
+        <button onClick={() => logs.refetch()}
+          className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500">
+          Refresh
+        </button>
+        <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)}
+            className="rounded border-gray-300" />
+          Auto-refresh (5s)
+        </label>
+      </div>
+
+      {logs.isPending && <p className="text-sm text-gray-500">Loading logs…</p>}
+      {logs.isError   && <p className="text-sm text-red-600">Failed to load logs.</p>}
+
+      {logs.isSuccess && (
+        logs.data.lines?.length === 0
+          ? <p className="text-sm text-gray-500 py-4">{logs.data.message ?? 'No log entries.'}</p>
+          : (
+            <pre
+              aria-label={`${tier} ${stream} logs`}
+              className="bg-gray-900 text-green-400 rounded-lg p-4 text-xs font-mono overflow-auto max-h-[60vh] whitespace-pre-wrap break-all"
+            >
+              {(logs.data.lines ?? []).join('\n')}
+            </pre>
+          )
+      )}
+    </section>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -421,15 +711,26 @@ export default function AdminPage() {
   }, [userId, navigate]);
 
   const profile = useGetProfile(userId);
+  const callerRole = profile.data?.systemRole ? String(profile.data.systemRole).toLowerCase() : '';
+  const isSuperAdmin = callerRole === 'super_admin';
 
   useEffect(() => {
     if (
       profile.isSuccess &&
-      String(profile.data?.systemRole).toLowerCase() !== 'system_admin'
+      (String(profile.data?.systemRole).toLowerCase() !== 'system_admin' &&
+       String(profile.data?.systemRole).toLowerCase() !== 'super_admin')
     ) {
       navigate('/events', { replace: true });
     }
   }, [profile.isSuccess, profile.data, navigate]);
+
+  const TABS = [
+    { key: 'users',    label: 'Users' },
+    { key: 'settings', label: 'Settings' },
+    { key: 'events',   label: 'Events' },
+    { key: 'audit',    label: 'Audit' },
+    ...(isSuperAdmin ? [{ key: 'logs', label: 'Logs' }] : []),
+  ];
 
   const [activeTab, setActiveTab] = useState('users');
 
@@ -443,7 +744,8 @@ export default function AdminPage() {
 
   if (
     profile.isSuccess &&
-    String(profile.data?.systemRole).toLowerCase() !== 'system_admin'
+    String(profile.data?.systemRole).toLowerCase() !== 'system_admin' &&
+    String(profile.data?.systemRole).toLowerCase() !== 'super_admin'
   ) {
     return null;
   }
@@ -478,7 +780,7 @@ export default function AdminPage() {
         </div>
 
         <div hidden={activeTab !== 'users'}>
-          <UsersTab />
+          <UsersTab callerRole={callerRole} />
         </div>
         <div hidden={activeTab !== 'settings'}>
           <SettingsTab />
@@ -486,7 +788,16 @@ export default function AdminPage() {
         <div hidden={activeTab !== 'events'}>
           <EventsTab />
         </div>
+        <div hidden={activeTab !== 'audit'}>
+          <AuditTab />
+        </div>
+        {isSuperAdmin && (
+          <div hidden={activeTab !== 'logs'}>
+            <LogsTab />
+          </div>
+        )}
       </main>
     </div>
   );
 }
+

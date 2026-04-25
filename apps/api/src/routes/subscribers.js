@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, requireEventRole } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, fail, notFound, conflict } from '../utils/response.js';
+import { writeAudit, getIp } from '../utils/audit.js';
 
 export const subscribersRouter = Router();
 
@@ -63,6 +64,7 @@ subscribersRouter.post('/:id/subscribers', authenticate, requireEventRole('OWNER
       include: { contacts: { orderBy: { createdAt: 'asc' } } },
     });
 
+    writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'CREATE', entityType: 'SUBSCRIBER', entityId: subscriber.id, entitySummary: `${subscriber.firstname} ${subscriber.lastname}`, ipAddress: getIp(req) });
     return created(res, { subscriber });
   } catch (e) { next(e); }
 });
@@ -129,6 +131,7 @@ subscribersRouter.patch('/:id/subscribers/:sid', authenticate, requireEventRole(
       data,
       include: { contacts: { orderBy: { createdAt: 'asc' } } },
     });
+    writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'UPDATE', entityType: 'SUBSCRIBER', entityId: sub.id, entitySummary: `${sub.firstname} ${sub.lastname}`, changes: data, ipAddress: getIp(req) });
     return ok(res, { subscriber: updated });
   } catch (e) { next(e); }
 });
@@ -152,6 +155,7 @@ subscribersRouter.delete('/:id/subscribers/:sid', authenticate, requireEventRole
     }
 
     await prisma.subscriber.delete({ where: { id: sid } });
+    writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'DELETE', entityType: 'SUBSCRIBER', entityId: sid, entitySummary: `${sub.firstname} ${sub.lastname}`, ipAddress: getIp(req) });
     return ok(res, { deleted: true });
   } catch (e) { next(e); }
 });

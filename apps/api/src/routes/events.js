@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, requireEventRole } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { ok, created, fail, notFound, forbidden } from '../utils/response.js';
+import { writeAudit, getIp } from '../utils/audit.js';
 
 export const eventsRouter = Router();
 
@@ -24,6 +25,7 @@ eventsRouter.post('/', authenticate, async (req, res, next) => {
 			select: { id: true, ownerId: true, subject: true, description: true, eventDatetime: true, eventTimezone: true, location: true, status: true, createdAt: true }
 		});
 
+		writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'CREATE', entityType: 'EVENT', entityId: event.id, entitySummary: event.subject, ipAddress: getIp(req) });
 		return created(res, { event });
 	} catch (e) { next(e); }
 });
@@ -49,7 +51,8 @@ eventsRouter.get('/', authenticate, async (req, res, next) => {
 		}
 
 		// Non-admin: restrict to events owned by user or where user has access
-		if (String(req.user.systemRole).toLowerCase() !== 'system_admin') {
+		const callerRole = String(req.user.systemRole).toLowerCase();
+		if (callerRole !== 'system_admin' && callerRole !== 'super_admin') {
 			// find event ids where user has access
 			const accesses = await prisma.eventAccess.findMany({ where: { userId: req.user.id }, select: { eventId: true } });
 			const accessibleIds = accesses.map(a => a.eventId);
@@ -72,7 +75,8 @@ eventsRouter.get('/:id', authenticate, requireEventRole('OWNER', 'CONTRIBUTOR', 
 		if (!event) return notFound(res, 'Event not found.');
 
 		// If event not active, non-admins should see 404
-		if (String(event.status).toLowerCase() !== 'active' && String(req.user.systemRole).toLowerCase() !== 'system_admin')
+		const callerRole2 = String(req.user.systemRole).toLowerCase();
+		if (String(event.status).toLowerCase() !== 'active' && callerRole2 !== 'system_admin' && callerRole2 !== 'super_admin')
 			return notFound(res, 'Event not found.');
 
 		const ev = await prisma.event.findUnique({ where: { id }, include: { reminders: true, subscribers: true } });
@@ -100,6 +104,7 @@ eventsRouter.patch('/:id', authenticate, requireEventRole('OWNER', 'CONTRIBUTOR'
 		if (Object.keys(data).length === 0) return fail(res, 'INVALID_PAYLOAD', 'No updatable fields provided.', 400);
 
 		const updated = await prisma.event.update({ where: { id }, data, select: { id: true, subject: true, description: true, eventDatetime: true, eventTimezone: true, location: true, status: true, updatedAt: true } });
+		writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'UPDATE', entityType: 'EVENT', entityId: id, entitySummary: updated.subject, changes: data, ipAddress: getIp(req) });
 		return ok(res, { event: updated });
 	} catch (e) { next(e); }
 });
@@ -113,6 +118,7 @@ eventsRouter.delete('/:id', authenticate, requireEventRole('OWNER'), async (req,
 		if (!event) return notFound(res, 'Event not found.');
 
 		const archived = await prisma.event.update({ where: { id }, data: { status: 'ARCHIVED' }, select: { id: true, status: true } });
+		writeAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'DELETE', entityType: 'EVENT', entityId: id, entitySummary: event.subject, ipAddress: getIp(req) });
 		return ok(res, { event: archived });
 	} catch (e) { next(e); }
 });

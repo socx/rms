@@ -12,8 +12,22 @@ datasource db {
 }
 
 enum system_role {
-  USER @map("user")
+  USER         @map("user")
   SYSTEM_ADMIN @map("system_admin")
+  SUPER_ADMIN  @map("super_admin")
+}
+
+enum audit_action {
+  CREATE @map("create")
+  UPDATE @map("update")
+  DELETE @map("delete")
+}
+
+enum audit_entity_type {
+  EVENT      @map("event")
+  REMINDER   @map("reminder")
+  SUBSCRIBER @map("subscriber")
+  USER       @map("user")
 }
 
 enum user_status {
@@ -133,6 +147,7 @@ model User {
   verificationTokens EmailVerificationToken[]
   outbox            EmailOutbox[]
   settingUpdates   SystemSetting[]
+  auditLogs        AuditLog[]
   @@index([status])
   @@map("users")
 }
@@ -348,4 +363,22 @@ model ReminderReport {
   @@unique([reminderId, occurrenceNumber])
   @@index([reminderId])
   @@map("reminder_reports")
+}
+
+model AuditLog {
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId       String?           @map("actor_id") @db.Uuid
+  actorEmail    String            @map("actor_email") @db.VarChar(255)
+  action        audit_action
+  entityType    audit_entity_type @map("entity_type")
+  entityId      String            @map("entity_id") @db.Uuid
+  entitySummary String?           @map("entity_summary") @db.VarChar(500)
+  changes       Json?
+  ipAddress     String?           @map("ip_address") @db.VarChar(45)
+  createdAt     DateTime          @default(now()) @map("created_at")
+  actor         User?             @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

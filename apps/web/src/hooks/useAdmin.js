@@ -63,3 +63,46 @@ export function useAdminEvents({ page = 1, perPage = 20, q = '' } = {}) {
       api.get('/admin/events', { params: { page, per_page: perPage, q } }).then(r => r.data),
   });
 }
+
+// ── Create user ───────────────────────────────────────────────────────────────
+
+export function useAdminCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data) => api.post('/users', data).then(r => r.data.data.user),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+  });
+}
+
+// ── Audit logs ────────────────────────────────────────────────────────────────
+
+export function useAdminAuditLogs({ entityType, actorId, action, dateFrom, dateTo, limit = 100, offset = 0 } = {}) {
+  return useQuery({
+    queryKey: ['admin-audit-logs', entityType, actorId, action, dateFrom, dateTo, limit, offset],
+    queryFn: () =>
+      api.get('/admin/audit-logs', {
+        params: {
+          ...(entityType ? { entity_type: entityType } : {}),
+          ...(actorId ? { actor_id: actorId } : {}),
+          ...(action ? { action } : {}),
+          ...(dateFrom ? { date_from: dateFrom } : {}),
+          ...(dateTo ? { date_to: dateTo } : {}),
+          limit,
+          offset,
+        },
+      }).then(r => r.data),
+  });
+}
+
+// ── Log viewer ────────────────────────────────────────────────────────────────
+
+export function useAdminLogs({ tier, stream, lines = 200 } = {}) {
+  return useQuery({
+    queryKey: ['admin-logs', tier, stream, lines],
+    queryFn: () =>
+      api.get('/admin/logs', { params: { tier, stream, lines } }).then(r => r.data.data),
+    enabled: !!tier && !!stream,
+    refetchInterval: false,
+  });
+}
+
