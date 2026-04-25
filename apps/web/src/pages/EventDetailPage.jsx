@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { getStoredUserId } from '../hooks/useAuth.js';
+import { getStoredUserId, getStoredUserRole } from '../hooks/useAuth.js';
 import { useGetEvent, useUpdateEvent } from '../hooks/useEvents.js';
 import RemindersTab from './RemindersTab.jsx';
 import SubscribersTab from './SubscribersTab.jsx';
@@ -82,7 +82,9 @@ const inputClass =
 export default function EventDetailPage() {
   const { id }   = useParams();
   const navigate = useNavigate();
-  const userId   = getStoredUserId();
+  const userId     = getStoredUserId();
+  const userRole    = getStoredUserRole();
+  const isSysAdmin  = userRole === 'SUPER_ADMIN' || userRole === 'SYSTEM_ADMIN';
 
   useEffect(() => {
     if (!userId) navigate('/login', { replace: true });
@@ -141,7 +143,7 @@ export default function EventDetailPage() {
 
   if (!event) return null;
 
-  const isOwner   = event.ownerId === userId;
+  const isOwner   = isSysAdmin || event.ownerId === userId;
   const canEdit   = isOwner && event.status === 'ACTIVE';
   // OWNER and CONTRIBUTOR can create/edit reminders; READER and unauthenticated visitors cannot
   const eventRole = isOwner ? 'OWNER' : (event.myRole ?? null); // API may supply myRole for non-owners
