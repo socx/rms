@@ -186,9 +186,10 @@ jobs:
             psql "$DB_URL" -c "UPDATE system_settings SET value='true' WHERE key='allow_public_registration';"
 
             # rms_005 adds new enum values and the audit_logs table.
-            # ALTER TYPE requires the type owner (superuser), so connect via the local
-            # postgres socket instead of the app URL.
-            DB_NAME=$(echo "$DB_URL" | sed 's|.*/||' | cut -d'?' -f1)
+            # ALTER TYPE requires the type owner (postgres). The deploy user has a
+            # narrow sudoers entry allowing passwordless: sudo -u postgres psql
+            # (see infra/README or onboarding docs for the one-time server setup).
+            DB_NAME=$(psql "$DB_URL" -tAc "SELECT current_database()")
             sudo -u postgres psql -d "$DB_NAME" -v ON_ERROR_STOP=1 -f infra/rms_005_super_admin_audit.sql
 
             echo "--- Installing Python dependencies ---"
