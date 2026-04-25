@@ -61,6 +61,7 @@ jobs:
           psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_002_email_outbox.sql
           psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_003_revoked_tokens.sql
           psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_004_dispatch_retry_after.sql
+          psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -f infra/rms_005_super_admin_audit.sql
           psql -h localhost -U "$CI_DB_USER" -d "$CI_DB_NAME" -c "UPDATE system_settings SET value = 'true' WHERE key = 'allow_public_registration';"
 
       - name: Generate Prisma client
@@ -183,6 +184,12 @@ jobs:
             psql "$DB_URL" -v ON_ERROR_STOP=1 -f infra/rms_003_revoked_tokens.sql
             psql "$DB_URL" -v ON_ERROR_STOP=1 -f infra/rms_004_dispatch_retry_after.sql
             psql "$DB_URL" -c "UPDATE system_settings SET value='true' WHERE key='allow_public_registration';"
+
+            # rms_005 adds new enum values and the audit_logs table.
+            # ALTER TYPE requires the type owner (superuser), so connect via the local
+            # postgres socket instead of the app URL.
+            DB_NAME=$(echo "$DB_URL" | sed 's|.*/||' | cut -d'?' -f1)
+            sudo -u postgres psql -d "$DB_NAME" -v ON_ERROR_STOP=1 -f infra/rms_005_super_admin_audit.sql
 
             echo "--- Installing Python dependencies ---"
             [ -d .venv ] || python3 -m venv .venv
