@@ -222,13 +222,32 @@ test.describe('Login page', () => {
 
   // ---- auth redirect ----
 
-  test('visiting /login when already logged in does not clear the token', async ({ page }) => {
-    // Pre-seed a token
+  test('visiting /login when already logged in redirects to /events', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('rms_token', 'pre-existing'));
     await page.goto(LOGIN_URL);
-    await page.evaluate(() => localStorage.setItem('rms_token', 'pre-existing'));
-    await page.reload();
-
+    await page.waitForURL(/\/events/);
+    expect(page.url()).toContain('/events');
+    // Token is preserved
     const token = await page.evaluate(() => localStorage.getItem('rms_token'));
     expect(token).toBe('pre-existing');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Root redirect tests
+// ---------------------------------------------------------------------------
+
+test.describe('Root redirect (/)', () => {
+  test('redirects unauthenticated user to /login', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+  });
+
+  test('redirects authenticated user to /events', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('rms_token', 'fake-jwt'));
+    await page.goto('/');
+    await page.waitForURL(/\/events/);
+    expect(page.url()).toContain('/events');
   });
 });

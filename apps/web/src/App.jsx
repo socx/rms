@@ -11,13 +11,18 @@ import EventsPage from './pages/EventsPage.jsx';
 import EventDetailPage from './pages/EventDetailPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import ApiStatusBadge from './components/ApiStatusBadge.jsx';
+import { getStoredToken } from './hooks/useAuth.js';
+
+function RootRedirect() {
+  return getStoredToken() ? <Navigate to="/events" replace /> : <Navigate to="/login" replace />;
+}
 
 export default function App() {
   return (
     <>
       <ApiStatusBadge />
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<RootRedirect />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -28,7 +33,7 @@ export default function App() {
         <Route path="/api-keys" element={<ApiKeysPage />} />
         <Route path="/email-branding" element={<EmailBrandingPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<RootRedirect />} />
       </Routes>
     </>
   );

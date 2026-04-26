@@ -2,8 +2,8 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, useNavigate } from 'react-router-dom';
-import { useLogin } from '../hooks/useAuth.js';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
+import { useLogin, getStoredToken } from '../hooks/useAuth.js';
 
 const schema = z.object({
   email: z.string().email('Enter a valid email address'),
@@ -13,6 +13,9 @@ const schema = z.object({
 export default function LoginPage() {
   const navigate = useNavigate();
   const login = useLogin();
+
+  // Already authenticated — skip the login page
+  if (getStoredToken()) return <Navigate to="/events" replace />;
 
   const {
     register,
