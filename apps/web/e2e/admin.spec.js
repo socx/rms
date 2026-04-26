@@ -270,6 +270,7 @@ test.describe('Users tab', () => {
 
   test('demote button sends PATCH with systemRole USER', async ({ page }) => {
     await setup(page, {
+      profile:     makeProfile({ systemRole: 'SUPER_ADMIN' }),
       users:       [makeUser({ systemRole: 'SYSTEM_ADMIN' })],
       updatedUser: makeUser({ systemRole: 'USER' }),
     });
