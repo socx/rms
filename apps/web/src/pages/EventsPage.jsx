@@ -555,16 +555,25 @@ export default function EventsPage() {
                         <RoleBadge isOwner={isOwner} />
                       </td>
                       <td className="px-3 py-4 text-right">
-                        {isOwner && ev.status === 'ACTIVE' && (
-                          <button
-                            type="button"
-                            onClick={() => { setCancelTarget(ev); setCancelOk(false); }}
-                            aria-label={`Cancel ${ev.subject}`}
-                            className="text-xs font-medium text-red-600 hover:text-red-500"
+                        <div className="inline-flex items-center gap-3">
+                          <Link
+                            to={`/events/${ev.id}`}
+                            aria-label={`View details for ${ev.subject}`}
+                            className="text-xs font-medium text-indigo-600 hover:text-indigo-500"
                           >
-                            Cancel
-                          </button>
-                        )}
+                            View details
+                          </Link>
+                          {isOwner && ev.status === 'ACTIVE' && (
+                            <button
+                              type="button"
+                              onClick={() => { setCancelTarget(ev); setCancelOk(false); }}
+                              aria-label={`Cancel ${ev.subject}`}
+                              className="text-xs font-medium text-red-600 hover:text-red-500"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

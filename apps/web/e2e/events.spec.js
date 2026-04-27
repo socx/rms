@@ -8,6 +8,13 @@ const FAKE_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2V
 const USER_ID    = 'user-123';
 const EVENTS_PATTERN = '**/api/v1/events**';
 
+/** Build a minimal unsigned fake JWT with the given role for testing UI logic. */
+function makeToken(role, sub = USER_ID) {
+  const header  = 'eyJhbGciOiJIUzI1NiJ9';
+  const payload = Buffer.from(JSON.stringify({ sub, role })).toString('base64').replace(/=/g, '');
+  return `${header}.${payload}.fake`;
+}
+
 function makeEvent(overrides = {}) {
   return {
     id:            'evt-001',
@@ -387,5 +394,110 @@ test.describe('Events page — cancel', () => {
     await page.getByRole('dialog').getByRole('button', { name: /cancel event/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
     await expect(page.getByText(/event cancelled/i)).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// View details link — role-based behaviour
+// ---------------------------------------------------------------------------
+// "View details" always appears for every row regardless of role or ownership.
+// "Cancel" only appears when ev.ownerId === userId && ev.status === 'ACTIVE'
+// (EventsPage has no admin override for isOwner — only EventDetailPage does).
+// ---------------------------------------------------------------------------
+
+test.describe('Events page — View details link', () => {
+  const OWNED_ACTIVE   = makeEvent({ id: 'evt-001', subject: 'Annual Team Meeting',  status: 'ACTIVE',    ownerId: USER_ID      });
+  const SHARED_ACTIVE  = makeEvent({ id: 'evt-003', subject: 'Shared With Me Event', status: 'ACTIVE',    ownerId: 'other-456'  });
+  const OWNED_CANCELLED = makeEvent({ id: 'evt-004', subject: 'Past Team Meeting',   status: 'CANCELLED', ownerId: USER_ID      });
+
+  // Helper: navigate to /events as a specific role
+  async function goAs(page, role, events) {
+    const token = makeToken(role);
+    await page.addInitScript((t) => localStorage.setItem('rms_token', t), token);
+    await setup(page, { listEvents: events });
+    await page.goto('/events');
+  }
+
+  // -- USER role -----------------------------------------------------------
+
+  test('USER (owner) sees View details link for their active event', async ({ page }) => {
+    await goAs(page, 'USER', [OWNED_ACTIVE]);
+    await expect(page.getByRole('link', { name: /view details for annual team meeting/i })).toBeVisible();
+  });
+
+  test('USER (owner) sees Cancel button alongside View details for their active event', async ({ page }) => {
+    await goAs(page, 'USER', [OWNED_ACTIVE]);
+    await expect(page.getByRole('link',   { name: /view details for annual team meeting/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /cancel annual team meeting/i           })).toBeVisible();
+  });
+
+  test('USER (non-owner) sees View details link for a shared event', async ({ page }) => {
+    await goAs(page, 'USER', [SHARED_ACTIVE]);
+    await expect(page.getByRole('link', { name: /view details for shared with me event/i })).toBeVisible();
+  });
+
+  test('USER (non-owner) does not see Cancel for a shared event', async ({ page }) => {
+    await goAs(page, 'USER', [SHARED_ACTIVE]);
+    await expect(page.getByRole('button', { name: /cancel shared with me event/i })).not.toBeVisible();
+  });
+
+  test('USER (owner) sees View details but no Cancel for a cancelled event', async ({ page }) => {
+    await goAs(page, 'USER', [OWNED_CANCELLED]);
+    await expect(page.getByRole('link',   { name: /view details for past team meeting/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /cancel past team meeting/i           })).not.toBeVisible();
+  });
+
+  // -- SYSTEM_ADMIN role ---------------------------------------------------
+
+  test('SYSTEM_ADMIN sees View details link for any event', async ({ page }) => {
+    await goAs(page, 'SYSTEM_ADMIN', [OWNED_ACTIVE, SHARED_ACTIVE]);
+    await expect(page.getByRole('link', { name: /view details for annual team meeting/i  })).toBeVisible();
+    await expect(page.getByRole('link', { name: /view details for shared with me event/i })).toBeVisible();
+  });
+
+  test('SYSTEM_ADMIN does not see Cancel for events they do not own', async ({ page }) => {
+    await goAs(page, 'SYSTEM_ADMIN', [SHARED_ACTIVE]);
+    await expect(page.getByRole('button', { name: /cancel shared with me event/i })).not.toBeVisible();
+  });
+
+  test('SYSTEM_ADMIN sees Cancel for an event they do own', async ({ page }) => {
+    // Token sub is USER_ID; event ownerId is also USER_ID → isOwner = true
+    await goAs(page, 'SYSTEM_ADMIN', [OWNED_ACTIVE]);
+    await expect(page.getByRole('button', { name: /cancel annual team meeting/i })).toBeVisible();
+  });
+
+  // -- SUPER_ADMIN role ----------------------------------------------------
+
+  test('SUPER_ADMIN sees View details link for any event', async ({ page }) => {
+    await goAs(page, 'SUPER_ADMIN', [OWNED_ACTIVE, SHARED_ACTIVE]);
+    await expect(page.getByRole('link', { name: /view details for annual team meeting/i  })).toBeVisible();
+    await expect(page.getByRole('link', { name: /view details for shared with me event/i })).toBeVisible();
+  });
+
+  test('SUPER_ADMIN does not see Cancel for events they do not own', async ({ page }) => {
+    await goAs(page, 'SUPER_ADMIN', [SHARED_ACTIVE]);
+    await expect(page.getByRole('button', { name: /cancel shared with me event/i })).not.toBeVisible();
+  });
+
+  test('SUPER_ADMIN sees Cancel for an event they do own', async ({ page }) => {
+    await goAs(page, 'SUPER_ADMIN', [OWNED_ACTIVE]);
+    await expect(page.getByRole('button', { name: /cancel annual team meeting/i })).toBeVisible();
+  });
+
+  // -- Link href -----------------------------------------------------------
+
+  test('View details link href points to /events/:id', async ({ page }) => {
+    await goAs(page, 'USER', [OWNED_ACTIVE]);
+    const link = page.getByRole('link', { name: /view details for annual team meeting/i });
+    await expect(link).toHaveAttribute('href', '/events/evt-001');
+  });
+
+  // -- Mixed list ----------------------------------------------------------
+
+  test('View details link appears for every row in a mixed-role list', async ({ page }) => {
+    await goAs(page, 'USER', [OWNED_ACTIVE, SHARED_ACTIVE, OWNED_CANCELLED]);
+    await expect(page.getByRole('link', { name: /view details for annual team meeting/i  })).toBeVisible();
+    await expect(page.getByRole('link', { name: /view details for shared with me event/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /view details for past team meeting/i    })).toBeVisible();
   });
 });
