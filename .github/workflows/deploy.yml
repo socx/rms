@@ -195,3 +195,39 @@ jobs:
                 echo "Skipping missing unit: ${svc}.service"
               fi
             done
+
+      - name: Collect remote service diagnostics
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -eu
+            TMP=/tmp/deploy-diagnostics
+            rm -rf "$TMP"
+            mkdir -p "$TMP"
+            for svc in rms-web rms-api rms-worker; do
+              echo "Collecting status for $svc"
+              sudo systemctl status "$svc" --no-pager > "$TMP/${svc}.status.txt" 2>&1 || true
+              sudo journalctl -u "$svc" -n 200 --no-pager > "$TMP/${svc}.journal.txt" 2>&1 || true
+            done
+            tar -C /tmp -czf /tmp/deploy-diagnostics.tgz deploy-diagnostics || true
+
+      - name: Download diagnostics artifact from droplet
+        if: always()
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: /tmp/deploy-diagnostics.tgz
+          target: ${{ runner.temp }}
+
+      - name: Upload diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: deploy-diagnostics
+          path: ${{ runner.temp }}/deploy-diagnostics.tgz
