@@ -99,6 +99,9 @@ jobs:
 
   # ── Deploy to DigitalOcean droplet ────────────────────────────────────────  
   deploy:
+    name: Deploy
+    needs: [api-tests, worker-tests]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: prod-lab-01
 
@@ -165,11 +168,28 @@ jobs:
             cd "$APP_DIR"
             "$NPM_BIN" ci
 
+            # Ensure Python worker venv and dependencies are present at the expected path
+            if [ -f "apps/worker/requirements.txt" ]; then
+              if [ ! -d "apps/worker/.venv" ]; then
+                python3 -m venv apps/worker/.venv
+              fi
+              apps/worker/.venv/bin/pip install --upgrade pip
+              apps/worker/.venv/bin/pip install -r apps/worker/requirements.txt
+              # make sure the python binary is executable
+              if [ -f "apps/worker/.venv/bin/python" ]; then
+                chmod +x apps/worker/.venv/bin/python || true
+              fi
+            fi
+
+            # Reload systemd to pick up any externally-managed unit file changes
             sudo systemctl daemon-reload
             for svc in rms-web rms-api rms-worker; do
               if systemctl list-unit-files --type=service | grep -q "^${svc}\.service"; then
                 sudo systemctl enable "$svc"
-                sudo systemctl restart "$svc"
+                sudo systemctl.restart "$svc" || {
+                  echo "Service $svc failed to restart; showing journal:";
+                  sudo journalctl -u "$svc" -n 200 --no-pager || true
+                }
                 sudo systemctl status "$svc" --no-pager || true
               else
                 echo "Skipping missing unit: ${svc}.service"
