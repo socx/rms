@@ -124,10 +124,26 @@ jobs:
       # - name: Test API
       #   run: npm run test --workspace=apps/api --if-present
 
-      - name: Package repo
+      - name: Install production Node deps for server
         run: |
+          # Install only production dependencies for the API workspace so we can
+          # include them in the release archive and avoid running `npm ci` on the droplet.
+          npm ci --workspace=apps/api --omit=dev
+
+      - name: Package repo (include apps/api/node_modules)
+        run: |
+          RELEASE_DIR="$RUNNER_TEMP/release"
+          rm -rf "$RELEASE_DIR"
+          mkdir -p "$RELEASE_DIR"
+          # Copy repository while excluding node_modules (we'll add apps/api/node_modules explicitly)
+          rsync -a --exclude='.git' --exclude='**/node_modules' ./ "$RELEASE_DIR/"
+          # If production deps were installed for apps/api, copy them into the release
+          if [ -d "apps/api/node_modules" ]; then
+            mkdir -p "$RELEASE_DIR/apps/api"
+            cp -a apps/api/node_modules "$RELEASE_DIR/apps/api/"
+          fi
           ARCHIVE_PATH="$RUNNER_TEMP/release.tgz"
-          tar --exclude='.git' --exclude='**/node_modules' -czf "$ARCHIVE_PATH" .
+          tar -C "$RELEASE_DIR" -czf "$ARCHIVE_PATH" .
           cp "$ARCHIVE_PATH" ./release.tgz
 
       - name: Upload to droplet
@@ -138,6 +154,25 @@ jobs:
           key: ${{ secrets.DROPLET_SSH_KEY }}
           source: "release.tgz"
           target: "/tmp"
+
+      - name: Check remote systemd unit files
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -eu
+            echo "Checking for systemd unit files"
+            for svc in rms-web rms-api rms-worker; do
+              if [ -f "/etc/systemd/system/${svc}.service" ]; then
+                echo "Found /etc/systemd/system/${svc}.service"
+              else
+                echo "MISSING: /etc/systemd/system/${svc}.service"
+                echo "Expected source (do-nginx-infra nginx-config branch):"
+                echo "  https://github.com/socx/do-nginx-infra/tree/nginx-config -> sites/${svc} or nginx/sites-available/${svc}"
+              fi
+            done
 
       - name: Deploy and restart services
         uses: appleboy/ssh-action@v1.0.3
@@ -202,39 +237,3 @@ jobs:
                 echo "Skipping missing unit: ${svc}.service"
               fi
             done
-
-      - name: Collect remote service diagnostics
-        if: always()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          script: |
-            set -eu
-            TMP=/tmp/deploy-diagnostics
-            rm -rf "$TMP"
-            mkdir -p "$TMP"
-            for svc in rms-web rms-api rms-worker; do
-              echo "Collecting status for $svc"
-              sudo systemctl status "$svc" --no-pager > "$TMP/${svc}.status.txt" 2>&1 || true
-              sudo journalctl -u "$svc" -n 200 --no-pager > "$TMP/${svc}.journal.txt" 2>&1 || true
-            done
-            tar -C /tmp -czf /tmp/deploy-diagnostics.tgz deploy-diagnostics || true
-
-      - name: Download diagnostics artifact from droplet
-        if: always()
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          source: /tmp/deploy-diagnostics.tgz
-          target: ${{ runner.temp }}
-
-      - name: Upload diagnostics artifact
-        if: always()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: deploy-diagnostics
-          path: ${{ runner.temp }}/deploy-diagnostics.tgz
