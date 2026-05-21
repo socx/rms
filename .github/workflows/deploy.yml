@@ -166,7 +166,12 @@ jobs:
             rm -f /tmp/release.tgz
 
             cd "$APP_DIR"
-            "$NPM_BIN" ci
+            # Run npm install on the remote. If it fails (OOM or other), fail fast
+            # to avoid leaving services in a half-updated state.
+            if ! "$NPM_BIN" ci; then
+              echo "Remote npm ci failed — aborting deployment to avoid partial upgrade." >&2
+              exit 1
+            fi
 
             # Ensure Python worker venv and dependencies are present at the expected path
             if [ -f "apps/worker/requirements.txt" ]; then
