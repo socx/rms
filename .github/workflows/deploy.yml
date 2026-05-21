@@ -175,10 +175,9 @@ jobs:
               fi
               apps/worker/.venv/bin/pip install --upgrade pip
               apps/worker/.venv/bin/pip install -r apps/worker/requirements.txt
-              # make sure the python binary is executable
-              if [ -f "apps/worker/.venv/bin/python" ]; then
-                chmod +x apps/worker/.venv/bin/python || true
-              fi
+              # do not attempt to change permissions on files we may not own
+              # (some environments prevent chmod by non-root). Assume venv python is executable.
+              :
             fi
 
             # Reload systemd to pick up any externally-managed unit file changes
@@ -186,8 +185,11 @@ jobs:
             for svc in rms-web rms-api rms-worker; do
               if systemctl list-unit-files --type=service | grep -q "^${svc}\.service"; then
                 sudo systemctl enable "$svc"
-                sudo systemctl.restart "$svc" || {
-                  echo "Service $svc failed to restart; showing journal:";
+                # Stop any existing restart loop, clear failure counters, then start once.
+                sudo systemctl stop "$svc" || true
+                sudo systemctl reset-failed "$svc" || true
+                sudo systemctl start "$svc" || {
+                  echo "Service $svc failed to start; showing journal:";
                   sudo journalctl -u "$svc" -n 200 --no-pager || true
                 }
                 sudo systemctl status "$svc" --no-pager || true
