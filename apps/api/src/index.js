@@ -28,12 +28,15 @@ import { adminRouter }        from './routes/admin.js';
 import { rateLimiter, authRateLimiter } from './middleware/rateLimiter.js';
 import { errorHandler }      from './middleware/errorHandler.js';
 import { requestLogger }     from './middleware/requestLogger.js';
+import { prisma }            from './utils/prisma.js';
 
 const app = express();
 app.use(helmet());
 app.use(cors({ origin: process.env.APP_DOMAIN, credentials: true }));
 app.use(express.json());
 app.use(requestLogger);
+
+// Mount versioned API routes under /api/v1/*
 app.use('/api/v1', rateLimiter);
 app.use('/api/v1/auth', authRateLimiter);
 app.use('/api/v1/auth',   authRouter);
@@ -43,7 +46,17 @@ app.use('/api/v1/events', eventsRouter);
 app.use('/api/v1/events', remindersRouter);
 app.use('/api/v1/events', subscribersRouter);
 app.use('/api/v1/admin',  adminRouter);
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// Health endpoint under /api checks database connectivity.
+app.get('/api/health', async (req, res) => {
+	try {
+		await prisma.$queryRawUnsafe('SELECT 1');
+		return res.json({ status: 'ok', db: 'connected' });
+	} catch (e) {
+		return res.status(503).json({ status: 'degraded', db: 'disconnected' });
+	}
+});
+
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;

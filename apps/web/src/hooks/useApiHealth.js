@@ -15,7 +15,7 @@ export function useApiHealth() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch('/health', { method: 'GET' })
+    fetch('/api/health', { method: 'GET' })
       .then(res => {
         if (!cancelled) {
           setStatus(res.ok ? { ok: true, checkedAt: formatTimestamp(new Date()) } : { ok: false });

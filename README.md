@@ -79,7 +79,7 @@ dev:secure notes
 - To query the health endpoint over HTTPS for local testing (accepting the self-signed cert):
 
 ```bash
-curl -k https://localhost:3443/health
+curl -k https://localhost:3443/api/health
 ```
 
 

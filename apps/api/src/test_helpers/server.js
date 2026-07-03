@@ -7,7 +7,7 @@ const waitForHealth = (url, timeout = 10000) => {
   const http = require('http');
   return new Promise((resolve, reject) => {
     const check = () => {
-      const u = new URL(url + '/health');
+      const u = new URL(url + '/api/health');
       const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           res.resume();
